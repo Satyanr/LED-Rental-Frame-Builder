@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { HOLLOW, MAX_FRAMES, MAX_PROJECT_BRACES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, braceSpacing, braceOffsetsMm, frameMembers, numeric, normalizeDegrees, snapValue, validateProject, makeProject } from './project.js';
+import { MAX_FRAMES, MAX_PROJECT_BRACES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, braceSpacing, braceOffsetsMm, frameMembers, frameSummary, validateFrameTemplate, numeric, normalizeDegrees, snapValue, validateProject, makeProject } from './project.js';
 
 const $ = id => document.getElementById(id);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -45,7 +45,7 @@ function main() {
   const rim=new THREE.DirectionalLight(0xccdfef,1.5);rim.position.set(-5,3,-4);scene.add(rim);
   const framesRoot=new THREE.Group();scene.add(framesRoot);
   const cube=new THREE.BoxGeometry(1,1,1), cubeEdges=new THREE.EdgesGeometry(cube);
-  const objects=new Map();let selected=null;let settings={...DEFAULT_SETTINGS};
+  const objects=new Map();let selected=null;let settings={...DEFAULT_SETTINGS};let lastSummary='';
   let currentView='iso', orthoSpan=5.5, dirty=true, projectDirty=false, savedFrames='', frameCounter=1;
   let mode='translate', drag=null, gizmoGesture=false, ignoreNextGizmoCommit=false;
   let histories=[], historyIndex=-1;
@@ -154,7 +154,15 @@ function main() {
       row.addEventListener('click',()=>{select(group);if(innerWidth<=800){document.querySelector('.library').classList.remove('panel-open');}});
       $('object-list').append(row);
     }
-    $('object-count').textContent=String(objects.size);$('status-count').textContent=`${objects.size} frame`;$('empty-list').hidden=objects.size>0;$('viewport-empty').hidden=objects.size>0;updateSelectionList();
+    $('object-count').textContent=String(objects.size);$('status-count').textContent=`${objects.size} frame`;$('empty-list').hidden=objects.size>0;$('viewport-empty').hidden=objects.size>0;updateSelectionList();renderFrameSummary();
+  }
+  function renderFrameSummary() {
+    const summary=frameSummary(allFrames()),key=JSON.stringify(summary);if(key===lastSummary)return;lastSummary=key;$('summary-total').textContent=`${summary.total} pcs`;
+    $('frame-summary-body').replaceChildren();$('frame-summary-empty').hidden=summary.total>0;$('frame-summary-table').hidden=summary.total===0;
+    for(const item of summary.bySize){
+      const row=document.createElement('tr'),size=document.createElement('td'),quantity=document.createElement('td');
+      size.textContent=`${fmt(item.width)} × ${fmt(item.height)} m`;quantity.textContent=`${item.quantity} pcs`;row.append(size,quantity);$('frame-summary-body').append(row);
+    }
   }
   function updateSelectionList() {for(const row of $('object-list').children){const active=row.dataset.id===selected?.userData.frame.id;row.classList.toggle('active',active);row.setAttribute('aria-selected',String(active));}}
   function select(group) {
@@ -172,10 +180,13 @@ function main() {
     for(const [id,value] of Object.entries(fields)){if(document.activeElement!==$(id))$(id).value=String(value);}
     updateBraceSummary('frame');updateDimensions();
   }
-  function contentDigest() {return JSON.stringify({frames:allFrames(),settings});}
+  function readFrameTemplate() {return validateFrameTemplate({width:inputNumber($('add-width'))/1000,height:inputNumber($('add-height'))/1000,braceSpacingMm:inputSpacing($('add-brace-spacing'))});}
+  function restoreFrameTemplate(template) {$('add-width').value=String(round(template.width*1000));$('add-height').value=String(round(template.height*1000));$('add-brace-spacing').value=String(template.braceSpacingMm);updateBraceSummary('add');}
+  function contentDigest() {return JSON.stringify({frames:allFrames(),settings,templateInputs:[$('add-width').value,$('add-height').value,$('add-brace-spacing').value]});}
   function markEdited() {projectDirty=contentDigest()!==savedFrames;$('save-status').textContent=projectDirty?'Perubahan belum disimpan':'Proyek tersimpan · lokal';}
   function snapshot() {return JSON.stringify({frames:allFrames(),selected:selected?.userData.frame.id||null});}
   function pushHistory() {
+    renderFrameSummary();
     const state=snapshot();
     if(historyIndex>=0&&histories[historyIndex]===state){updateGrid();return;}
     histories=histories.slice(0,historyIndex+1);histories.push(state);
@@ -362,7 +373,7 @@ function main() {
   $('frame-brace-spacing').addEventListener('change',()=>applySelectedChange(()=>{
     const f=selected.userData.frame,spacingMm=inputSpacing($('frame-brace-spacing'));ensureBraceBudget(f.height,spacingMm,selected);resizeFrame(selected,f.width,f.height,spacingMm);
   }));
-  ['add-height','add-brace-spacing'].forEach(id=>$(id).addEventListener('input',()=>updateBraceSummary('add')));
+  ['add-width','add-height','add-brace-spacing'].forEach(id=>$(id).addEventListener('input',()=>{updateBraceSummary('add');if(savedFrames)markEdited();}));
   for(const axis of ['x','y','z']){
     $(`position-${axis}`).addEventListener('change',()=>applySelectedChange(()=>{selected.position[axis]=numeric(inputNumber($(`position-${axis}`)),-LIMIT_POSITION,LIMIT_POSITION,'Posisi (meter)');}));
     $(`rotation-${axis}`).addEventListener('change',()=>applySelectedChange(()=>{selected.rotation[axis]=THREE.MathUtils.degToRad(normalizeDegrees(numeric(inputNumber($(`rotation-${axis}`)),-36000,36000,'Rotasi (derajat)')));}));
@@ -378,8 +389,17 @@ function main() {
   $('fit-all').addEventListener('click',()=>fitAll());$('duplicate').addEventListener('click',duplicate);$('delete').addEventListener('click',removeSelected);
   $('undo').addEventListener('click',()=>restoreHistory(-1));$('redo').addEventListener('click',()=>restoreHistory(1));
   $('save-project').addEventListener('click',()=>{
-    const project=makeProject(allFrames(),settings,cameraData());const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-    download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),`led-frame-project-${date}.json`);savedFrames=contentDigest();markEdited();toast('JSON proyek diekspor ke folder unduhan.');
+    try{
+      if(drag||transform.dragging)throw new Error('Selesaikan geseran frame sebelum menyimpan.');
+      // Read the editor explicitly: saving must not depend on a blur/change event.
+      const pendingSpacing=selected?inputSpacing($('frame-brace-spacing')):null;
+      const template=readFrameTemplate();document.activeElement?.blur();
+      if(selected&&pendingSpacing!==selected.userData.frame.braceSpacingMm){
+        const f=selected.userData.frame;ensureBraceBudget(f.height,pendingSpacing,selected);resizeFrame(selected,f.width,f.height,pendingSpacing);syncSelected();syncFields();pushHistory();
+      }
+      const project=makeProject(allFrames(),settings,cameraData(),template);const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+      download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),`led-frame-project-v1.2-${date}.json`);savedFrames=contentDigest();markEdited();toast('JSON tersimpan, termasuk jarak hollow dan pengaturan Buat frame.');
+    }catch(e){toast(e.message||'Gagal menyimpan proyek.',true);}
   });
   $('load-project').addEventListener('click',()=>$('project-file').click());
   $('project-file').addEventListener('change',async event=>{
@@ -389,7 +409,7 @@ function main() {
       let parsed;try{parsed=JSON.parse(await file.text());}catch{throw new Error('File bukan JSON yang valid.');}
       const project=validateProject(parsed);
       if(projectDirty&&!await confirmAction('Muat proyek?', 'Proyek saat ini memiliki perubahan yang belum disimpan. Memuat file akan menggantinya. Simpan JSON terlebih dahulu bila masih diperlukan.'))return;
-      replaceFrames(project.frames,project.frames[0]?.id);settings=project.settings;applySettings();restoreCamera(project.camera);frameCounter=project.frames.length+1;
+      replaceFrames(project.frames,project.frames[0]?.id);restoreFrameTemplate(project.frameTemplate);settings=project.settings;applySettings();restoreCamera(project.camera);frameCounter=project.frames.length+1;
       histories=[];historyIndex=-1;savedFrames=contentDigest();pushHistory();toast(`${objects.size} frame berhasil dimuat.`);
     } catch(e){toast(e.message||'Gagal membaca proyek.',true);}
   });
@@ -417,7 +437,7 @@ function main() {
     if(document.querySelector('dialog[open]'))return;
     const editing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
     const modifier=event.ctrlKey||event.metaKey;
-    if(modifier&&event.key.toLowerCase()==='s'){event.preventDefault();document.activeElement?.blur();$('save-project').click();return;}
+    if(modifier&&event.key.toLowerCase()==='s'){event.preventDefault();$('save-project').click();return;}
     if(editing)return;
     if(event.key==='Escape'){
       if(drag)endDirectDrag(true);

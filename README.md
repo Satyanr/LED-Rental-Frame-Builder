@@ -1,5 +1,7 @@
 # LED Rental Frame Builder
 
+Versi **1.2.0** — simpan/muat jarak hollow tengah dan rekap frame terpakai.
+
 Editor 3D lokal untuk menyusun rangka LED rental secara manual. Dibuat dengan HTML, CSS, JavaScript dan Three.js r170 yang sudah disertakan dalam paket. **Tidak memerlukan internet, akun, instalasi, atau proses build untuk dipakai.**
 
 ## Menjalankan
@@ -43,10 +45,19 @@ Tidak perlu menjalankan server. Jika ingin menggunakan server lokal, dari folder
 
 ## Simpan, muat, dan screenshot
 
+- **Simpan JSON** membaca perubahan jarak hollow yang sedang diketik sebelum membuat file. Nilai pada form **Buat frame** (lebar, tinggi, jarak) ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.2 pada nama file dan `appVersion` di dalam JSON.
 - **Simpan JSON** mengunduh proyek: seluruh frame, nama, dimensi, jarak hollow tengah, posisi, rotasi, preferensi snap/grid, dan keadaan kamera. Simpan sebelum menutup halaman; tidak ada penyimpanan otomatis.
 - **Muat** membaca file JSON lokal dari aplikasi ini. Format, nilai angka, batas objek, dan profil hollow divalidasi sebelum mengganti proyek. File rusak ditolak tanpa mengubah objek saat ini. Ukuran file maksimal 5 MB.
 - **Export PNG** mengunduh tampilan 3D saat ini, termasuk grid dan label dimensi terpilih jika diaktifkan. Gizmo dan panel editor tidak ikut diekspor. PNG mengikuti resolusi viewport dengan rasio piksel perangkat maksimal 2.
 - Browser menyimpan file di folder unduhan atau lokasi yang Anda pilih. Izinkan unduhan jika browser menanyakannya.
+
+## Rekap frame terpakai
+
+Panel **Frame terpakai** terletak di kanan, di bawah area properti, dan tetap terlihat saat properti digulir. Rekap menghitung seluruh objek dalam proyek berdasarkan ukuran luar, misalnya **2 × 2 m — 20 pcs** dan **2 × 1 m — 10 pcs**, beserta totalnya.
+
+Jumlah diperbarui setelah Add Frame, duplikat, hapus, perubahan ukuran, Undo/Redo, proyek baru, dan muat JSON. Rotasi tidak mengubah kelompok ukuran: 1 × 2 m dan 2 × 1 m digabung. Perbedaan jarak hollow tidak memisahkan kelompok ukuran. Ringkasan turut dimasukkan ke JSON sebagai `summary`; saat memuat, angka di panel dihitung kembali dari objek aktual.
+
+Format JSON tetap kompatibel dengan versi sebelumnya. Jika JSON lama tidak memiliki `frameTemplate`, form Buat frame diisi dari frame pertama. Bila sebuah file lama sama sekali tidak memiliki `braceSpacingMm`, jarak yang hilang tidak dapat ditebak; isi kembali pada panel properti lalu simpan menggunakan versi terbaru.
 
 ## Pintasan
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {HOLLOW, MAX_FRAMES, DEFAULT_SETTINGS, dimension, braceSpacing, braceOffsetsMm, frameMembers, normalizeDegrees, snapValue, validateProject, makeProject} from '../src/project.js';
+import {HOLLOW, MAX_FRAMES, DEFAULT_SETTINGS, dimension, braceSpacing, braceOffsetsMm, frameMembers, frameSummary, normalizeDegrees, snapValue, validateProject, makeProject} from '../src/project.js';
 
 const frame = () => ({id:'frame-01',name:'Frame 01',width:1,height:2,braceSpacingMm:0,position:[0,1,0],rotation:[0,90,0]});
 const project = () => makeProject([frame()],DEFAULT_SETTINGS,null);
@@ -66,4 +66,30 @@ test('invalid and excessive middle-tube spacing are rejected before geometry is 
   assert.throws(()=>braceOffsetsMm(50,100),/200/);
   const p=project();p.frames=Array.from({length:8},(_,i)=>({...frame(),id:String(i),height:20.1,braceSpacingMm:100}));
   assert.throws(()=>validateProject(p),/1500/);
+});
+
+test('export preserves per-object spacing and a different Add Frame template across real JSON serialization',()=>{
+  const frames=[{...frame(),braceSpacingMm:500},{...frame(),id:'second',braceSpacingMm:1000}];
+  const template={width:2,height:3,braceSpacingMm:750};
+  const serialized=JSON.stringify(makeProject(frames,DEFAULT_SETTINGS,null,template));
+  const parsed=validateProject(JSON.parse(serialized));
+  assert.deepEqual(parsed.frames.map(f=>f.braceSpacingMm),[500,1000]);
+  assert.deepEqual(parsed.frameTemplate,template);
+  assert.deepEqual(parsed.frames.map(f=>braceOffsetsMm(f.height,f.braceSpacingMm).length),[3,1]);
+});
+test('old JSON restores Add Frame from the first frame when the template was not saved',()=>{
+  const p=project();delete p.frameTemplate;p.frames[0].braceSpacingMm=1000;
+  assert.deepEqual(validateProject(p).frameTemplate,{width:1,height:2,braceSpacingMm:1000});
+});
+test('counts 20 frames of 2x2 and 10 of 2x1, independent of orientation, rotation and brace spacing',()=>{
+  const frames=[...Array.from({length:20},(_,i)=>({...frame(),id:`square-${i}`,width:2,height:2,braceSpacingMm:i%2?1000:0})),...Array.from({length:10},(_,i)=>({...frame(),id:`rectangle-${i}`,width:i%2?1:2,height:i%2?2:1}))];
+  assert.deepEqual(frameSummary(frames),{total:30,bySize:[{width:2,height:2,quantity:20},{width:2,height:1,quantity:10}]});
+  const data=makeProject(frames,DEFAULT_SETTINGS,null);assert.deepEqual(data.summary,frameSummary(frames));
+  data.summary.total=999;assert.equal(frameSummary(validateProject(data).frames).total,30);
+});
+test('counts respond to duplicate, deletion, resize and an empty scene',()=>{
+  const frames=[frame()];frames.push({...frame(),id:'copy'});assert.equal(frameSummary(frames).bySize[0].quantity,2);
+  frames[1].width=2;assert.equal(frameSummary(frames).bySize.length,2);
+  frames.pop();assert.equal(frameSummary(frames).total,1);
+  assert.deepEqual(frameSummary([]),{total:0,bySize:[]});
 });

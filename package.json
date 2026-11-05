@@ -1,6 +1,6 @@
 {
   "name": "led-rental-frame-builder",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Offline 3D editor for manually arranging 40x40 mm LED rental frames",

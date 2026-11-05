@@ -1,5 +1,6 @@
 // Project format is deliberately independent of Three.js and the DOM.
 export const HOLLOW = 0.04;
+export const APP_VERSION = '1.2.0';
 export const MAX_FRAMES = 300;
 export const MAX_BRACES_PER_FRAME = 200;
 export const MAX_PROJECT_BRACES = 1500;
@@ -61,6 +62,22 @@ export function validateFrame(frame, index=0) {
     rotation:triplet(frame.rotation, 36000, 'Rotasi').map(normalizeDegrees),
   };
 }
+export function validateFrameTemplate(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Pengaturan Buat frame tidak valid.');
+  const template={width:dimension(value.width,'Lebar Buat frame'),height:dimension(value.height,'Tinggi Buat frame'),braceSpacingMm:braceSpacing(value.braceSpacingMm??0)};
+  braceOffsetsMm(template.height,template.braceSpacingMm);return template;
+}
+export function frameSummary(frames) {
+  const groups=new Map();
+  for(const f of frames){
+    // Rotating a rectangular frame does not create a different physical size.
+    const sides=[dimension(f.width),dimension(f.height)].sort((a,b)=>b-a).map(n=>Number(n.toFixed(6)));
+    const key=sides.join('x');
+    if(!groups.has(key))groups.set(key,{width:sides[0],height:sides[1],quantity:0});
+    groups.get(key).quantity++;
+  }
+  return {total:frames.length,bySize:[...groups.values()].sort((a,b)=>b.width-a.width||b.height-a.height)};
+}
 export function validateProject(data) {
   if (!data || typeof data !== 'object' || data.app !== 'led-rental-frame-builder' || data.version !== 1 || data.units !== 'meters') throw new Error('Format proyek tidak didukung. Pilih JSON dari LED Rental Frame Builder versi 1.');
   if (data.hollow?.width !== HOLLOW || data.hollow?.height !== HOLLOW) throw new Error('Proyek harus memakai profil hollow tetap 40 × 40 mm.');
@@ -83,8 +100,10 @@ export function validateProject(data) {
     const vector = v => Array.isArray(v) && v.length===3 && v.every(n => typeof n==='number' && Number.isFinite(n) && Math.abs(n)<=10000);
     if (vector(c.position) && vector(c.target) && vector(c.up) && Math.hypot(...c.up)>0.5 && Math.hypot(...c.up)<1.5 && Math.hypot(...c.position.map((v,i)=>v-c.target[i]))>0.01 && typeof c.span==='number' && c.span>=0.1 && c.span<=5000) camera = {view:c.view, type:c.type, position:[...c.position], target:[...c.target], up:[...c.up], span:c.span};
   }
-  return {frames, settings, camera};
+  const frameTemplate=validateFrameTemplate(data.frameTemplate??frames[0]??{width:1,height:2,braceSpacingMm:0});
+  return {frames, settings, camera, frameTemplate};
 }
-export function makeProject(frames, settings, camera) {
-  return {app:'led-rental-frame-builder', version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames, settings:{...settings}, camera};
+export function makeProject(frames, settings, camera, template=frames[0]??{width:1,height:2,braceSpacingMm:0}) {
+  const savedFrames=frames.map(validateFrame);
+  return {app:'led-rental-frame-builder', appVersion:APP_VERSION, version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames:savedFrames, frameTemplate:validateFrameTemplate(template), summary:frameSummary(savedFrames), settings:{...settings}, camera};
 }

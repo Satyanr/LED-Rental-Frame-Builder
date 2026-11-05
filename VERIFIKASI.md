@@ -1,3 +1,13 @@
+# Pembaruan 1.2 — Persistensi JSON dan rekap
+
+- File JSON hasil unduhan aktual diperiksa: objek menyimpan `braceSpacingMm: 500`, sedangkan form Buat frame menyimpan jarak 750 mm, lebar 2000 mm dan tinggi 3000 mm.
+- File hasil unduhan itu dimuat ke halaman editor baru. Jarak objek 500 mm dan form 750 mm dipulihkan; batang tengah kembali tampil.
+- Penyimpanan diuji ketika input belum memicu perubahan melalui perpindahan fokus.
+- Rekap di browser: 20 frame 2 × 2 m, 10 frame 2 × 1 m, total 30 pcs.
+- Duplikat menjadi 31 pcs, hapus kembali 30 pcs. Mengubah satu frame 2 × 2 menjadi 1 × 2 mengubah kelompok menjadi 19 dan 11 pcs. Undo mengembalikan 20 dan 10 pcs.
+- Panel rekap diperiksa pada viewport 390 × 844: tetap di dalam layar, tanpa overflow horizontal.
+- 15 pemeriksaan otomatis lolos, termasuk simpan/muat form, kompatibilitas JSON lama, pengelompokan ukuran dan total objek.
+
 # Pembaruan 1.1 — Hollow tengah
 
 - Input lebar, tinggi, dan jarak hollow tengah memakai mm; koordinat dan grid tetap meter.
