@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#152823">
+  <meta name="description" content="Editor 3D lokal untuk menyusun rangka LED rental hollow 40 × 40 mm secara manual.">
+  <title>LED Rental Frame Builder</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.bundle.js"></script>
+</head>
+<body>
+  <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h12l4 4v14H3V3h2Zm2 0v7h10V3M7 21v-7h10v7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V4h6l3 3h9v13H3V7Z"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 7h5l2-3h4l2 3h5v13H3Z"/><circle cx="12" cy="13" r="4"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M20 10a8 8 0 1 0-2 8M20 3v7h-7"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></symbol>
+    <symbol id="i-fit" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M8 8h8v8H8Z"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="m8 4-5 5 5 5M3 9h11a7 7 0 0 1 0 14"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 5M12 17v.1"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7l9-5Zm0 10v10M3 7l9 5 9-5"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.1M3 12h.1M3 18h.1"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M5 3v18M12 3v18M19 3v18M2 8h6M9 16h6M16 9h6"/></symbol>
+  </defs></svg>
+  <header class="app-header">
+    <div class="brand"><div class="brand-symbol" aria-hidden="true"><span></span><span></span></div><div><h1>LED Rental <span>Frame Builder</span></h1><p>MANUAL 3D WORKSPACE</p></div><span class="local-badge"><i></i> LOCAL</span></div>
+    <div class="header-actions">
+      <button id="new-project" class="header-btn" title="Proyek kosong"><svg><use href="#i-plus"/></svg><span>Baru</span></button>
+      <span class="header-divider"></span>
+      <button id="load-project" class="header-btn" title="Muat file proyek JSON"><svg><use href="#i-folder"/></svg><span>Muat</span></button>
+      <button id="save-project" class="header-btn" title="Simpan proyek JSON (Ctrl+S)"><svg><use href="#i-save"/></svg><span>Simpan JSON</span></button>
+      <button id="export-png" class="header-btn accent" title="Ekspor tampilan 3D sebagai PNG"><svg><use href="#i-camera"/></svg><span>Export PNG</span></button>
+      <button id="help" class="header-btn icon-only" aria-label="Panduan penggunaan"><svg><use href="#i-help"/></svg></button>
+    </div>
+  </header>
+  <div class="mobile-tabs"><button id="toggle-library"><svg><use href="#i-list"/></svg> Frame & objek</button><span>3D WORKSPACE</span><button id="toggle-inspector"><svg><use href="#i-sliders"/></svg> Properti</button></div>
+  <main class="workspace">
+    <aside class="sidebar library" aria-label="Tambah frame dan daftar objek">
+      <section class="create-section">
+        <div class="section-title"><h2>Buat frame</h2><span class="section-number">01</span></div>
+        <div class="frame-card" draggable="true" id="frame-palette" title="Seret ke viewport untuk menempatkan frame"><div class="frame-diagram"><div></div><span class="dim-w">W</span><span class="dim-h">H</span></div><div class="frame-type"><strong>Rectangular frame</strong><span>Hollow tetap · 40 × 40 mm</span></div><span class="drag-hint">⠿</span></div>
+        <form id="add-form">
+          <div class="two-fields"><label>Lebar luar<input id="add-width" type="number" min="0.1" max="50" step="0.01" value="1" required><span class="unit">m</span></label><label>Tinggi luar<input id="add-height" type="number" min="0.1" max="50" step="0.01" value="2" required><span class="unit">m</span></label></div>
+          <button class="primary-btn" type="submit"><svg><use href="#i-plus"/></svg> Add Frame</button>
+        </form>
+        <p class="hint">Tambahkan di titik asal, atau seret kartu ke area kerja.</p>
+      </section>
+      <section class="object-section">
+        <div class="section-title"><h2>Objek</h2><span id="object-count" class="count-badge">0</span></div>
+        <div id="object-list" class="object-list" role="listbox" aria-label="Daftar frame"></div>
+        <p id="empty-list" class="empty-list">Belum ada frame.<br>Mulai dengan Add Frame.</p>
+      </section>
+      <div class="library-footer"><span class="fixed-profile">▣</span><div><strong>40 × 40 mm</strong><span>Profil hollow permanen</span></div><span class="lock-symbol" aria-hidden="true">⌑</span></div>
+    </aside>
+    <section id="viewport" class="viewport" aria-label="Area kerja 3D" tabindex="0">
+      <div id="stage" class="stage"></div>
+      <div class="viewport-top"><div class="view-label"><i></i><span id="view-name">ISOMETRIC</span><span class="projection-label" id="projection-name">PERSPECTIVE</span></div><div class="viewport-tools"><button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg><use href="#i-undo"/></svg></button><button id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" class="redo"><svg><use href="#i-undo"/></svg></button><span></span><button id="fit-all" title="Lihat seluruh struktur (F)" aria-label="Fit semua frame"><svg><use href="#i-fit"/></svg></button></div></div>
+      <div class="mode-toolbar" role="toolbar" aria-label="Kontrol objek"><button data-mode="translate" class="active" title="Geser frame (W)"><svg><use href="#i-move"/></svg> Geser <kbd>W</kbd></button><button data-mode="rotate" title="Putar frame (E)"><svg><use href="#i-rotate"/></svg> Putar <kbd>E</kbd></button><span class="tool-separator"></span><select id="transform-space" aria-label="Acuan sumbu gizmo"><option value="world">Sumbu dunia</option><option value="local">Sumbu lokal</option></select></div>
+      <div id="dimension-width" class="dimension-label" hidden></div><div id="dimension-height" class="dimension-label" hidden></div>
+      <div id="drop-overlay" class="drop-overlay" hidden><svg><use href="#i-plus"/></svg><strong>Lepas untuk menambah frame</strong><span>Frame ditempatkan di lantai Y = 0</span></div>
+      <div id="loading" class="loading"><div class="spinner"></div>Menyiapkan area kerja…</div>
+      <div id="viewport-empty" class="viewport-empty" hidden><svg><use href="#i-box"/></svg><h3>Ruang untuk struktur Anda.</h3><p>Tambahkan frame pertama untuk mulai menyusun.</p></div>
+      <div class="viewport-bottom"><div class="axis-legend"><span class="axis-x">X</span><span class="axis-y">Y ↑</span><span class="axis-z">Z</span><small>1 unit = 1 meter</small></div><div class="grid-label">GRID <strong>1 m</strong><span>· subdivisi 0,1 m</span></div></div>
+      <nav class="view-presets" aria-label="Sudut kamera"><button data-view="front">Front</button><button data-view="back">Back</button><button data-view="left">Left</button><button data-view="right">Right</button><button data-view="top">Top</button><button data-view="iso" class="active">Iso</button></nav>
+    </section>
+    <aside class="sidebar inspector" aria-label="Properti frame">
+      <div class="section-title"><h2>Properti frame</h2><span class="section-number">02</span></div>
+      <div id="no-selection" class="no-selection"><svg><use href="#i-box"/></svg><strong>Pilih sebuah frame</strong><p>Klik rangka di area 3D atau pilih dari daftar objek.</p></div>
+      <div id="selection-controls" hidden>
+        <div class="selection-heading"><span class="selected-dot"></span><span id="selected-id">FRAME 01</span><span>TERPILIH</span></div>
+        <label class="name-field">Nama objek<input id="frame-name" maxlength="60" autocomplete="off" value="Frame 01"></label>
+        <section class="property-section"><div class="property-heading"><h3>Dimensi luar</h3><span>meter</span></div><div class="two-fields"><label>Lebar<input id="frame-width" type="number" min="0.1" max="50" step="0.01"><span class="unit">m</span></label><label>Tinggi<input id="frame-height" type="number" min="0.1" max="50" step="0.01"><span class="unit">m</span></label></div><p class="micro-hint">Perubahan ukuran berpusat di titik tengah.</p></section>
+        <section class="property-section"><div class="property-heading"><h3>Posisi</h3><span>meter · titik tengah</span></div><div class="axis-fields"><label class="x-field"><span>X</span><input id="position-x" aria-label="Posisi X" type="number" min="-500" max="500" step="0.01"></label><label class="y-field"><span>Y</span><input id="position-y" aria-label="Posisi Y" type="number" min="-500" max="500" step="0.01"></label><label class="z-field"><span>Z</span><input id="position-z" aria-label="Posisi Z" type="number" min="-500" max="500" step="0.01"></label></div><button id="ground-frame" class="text-button">Letakkan di lantai <span>Y = 0 pada sisi terbawah</span></button></section>
+        <section class="property-section"><div class="property-heading"><h3>Rotasi</h3><span>derajat · Euler XYZ</span></div><div class="axis-fields"><label class="x-field"><span>X</span><input id="rotation-x" aria-label="Rotasi X" type="number" step="1"></label><label class="y-field"><span>Y</span><input id="rotation-y" aria-label="Rotasi Y" type="number" step="1"></label><label class="z-field"><span>Z</span><input id="rotation-z" aria-label="Rotasi Z" type="number" step="1"></label></div><div class="rotate-buttons"><button data-rotate="x" title="Putar +90° pada sumbu X sesuai acuan gizmo">X <span>+90°</span></button><button data-rotate="y" title="Putar +90° pada sumbu Y sesuai acuan gizmo">Y <span>+90°</span></button><button data-rotate="z" title="Putar +90° pada sumbu Z sesuai acuan gizmo">Z <span>+90°</span></button></div></section>
+        <div class="object-actions"><button id="duplicate" class="secondary-btn" title="Duplikat (Ctrl+D)"><svg><use href="#i-copy"/></svg>Duplikat</button><button id="delete" class="delete-btn" title="Hapus frame (Delete)" aria-label="Hapus frame"><svg><use href="#i-trash"/></svg></button></div>
+      </div>
+      <section class="workspace-settings"><div class="property-heading"><h3>Area kerja</h3></div><label class="toggle-row"><span>Snap langkah</span><input id="snap-enabled" type="checkbox" role="switch"><span class="switch"></span></label><div class="two-fields snap-fields"><label>Posisi<select id="snap-position"><option value="0.01">0,01 m</option><option value="0.05">0,05 m</option><option value="0.1" selected>0,1 m</option><option value="0.25">0,25 m</option><option value="0.5">0,5 m</option><option value="1">1 m</option></select></label><label>Rotasi<select id="snap-rotation"><option value="5">5°</option><option value="15" selected>15°</option><option value="45">45°</option><option value="90">90°</option></select></label></div><label class="toggle-row"><span>Grid metrik</span><input id="grid-enabled" type="checkbox" checked role="switch"><span class="switch"></span></label><label class="toggle-row"><span>Label dimensi</span><input id="dimensions-enabled" type="checkbox" checked role="switch"><span class="switch"></span></label><p class="micro-hint">Snap berlaku saat menyeret/gizmo. Input numerik tetap presisi.</p></section>
+      <div class="inspector-note"><span>↗</span><p>Susun satu per satu.<br>Semua frame dapat digeser dan diputar bebas.</p></div>
+    </aside>
+  </main>
+  <footer class="statusbar"><div><span class="ready-dot"></span><span id="status-text">Siap menyusun</span><span class="status-divider">/</span><span id="status-count">0 frame</span></div><div class="interaction-hint">Seret rangka: geser <b>·</b> Seret area kosong: orbit <b>·</b> Klik kanan: pan <b>·</b> Scroll: zoom</div><span id="save-status">Hanya di perangkat ini</span></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <input id="project-file" type="file" accept="application/json,.json" hidden>
+  <dialog id="help-dialog"><div class="dialog-heading"><div><span class="eyebrow">PANDUAN SINGKAT</span><h2>Susun. Geser. Putar.</h2></div><button data-close="help-dialog" class="close-dialog" aria-label="Tutup panduan">×</button></div><div class="help-content"><p>Setiap objek terdiri dari empat batang hollow <strong>40 × 40 mm</strong> yang membentuk keliling persegi panjang terbuka. Dimensi adalah ukuran luar; posisi ada di titik tengah frame.</p><dl><dt>Tambah & tempatkan</dt><dd>Isi lebar/tinggi, lalu Add Frame. Atau seret kartu frame ke viewport untuk menempatkannya di lantai.</dd><dt>Geser di ruang 3D</dt><dd>Mode Geser: seret batang frame pada bidang sejajar layar. Gunakan panah gizmo untuk satu sumbu, bidang kecil gizmo untuk dua sumbu, atau isi X/Y/Z untuk posisi presisi. Y adalah arah vertikal.</dd><dt>Putar</dt><dd>Mode Putar: seret cincin gizmo, tekan +90° X/Y/Z, atau isi rotasi numerik. Pilih sumbu dunia/lokal untuk gizmo dan tombol +90°. Rotasi numerik selalu Euler XYZ lokal.</dd><dt>Kamera</dt><dd>Seret area kosong untuk orbit; klik kanan untuk pan; scroll untuk zoom. Tampilan Front/Back/Left/Right/Top memakai kamera orthographic; Iso memakai perspective. F menampilkan semua objek.</dd><dt>Snap & simpan</dt><dd>Snap membulatkan gerakan sesuai langkah, bukan menghubungkan atau memeriksa tabrakan frame. Simpan JSON untuk menyimpan proyek; Muat JSON untuk membukanya. PNG mengekspor area 3D dan ukuran tanpa gizmo.</dd></dl><div class="shortcut-grid"><span><kbd>W</kbd> Geser</span><span><kbd>E</kbd> Putar</span><span><kbd>F</kbd> Fit semua</span><span><kbd>Esc</kbd> Lepas pilihan / batal geser</span><span><kbd>Ctrl D</kbd> Duplikat</span><span><kbd>Delete</kbd> Hapus</span><span><kbd>Ctrl Z</kbd> Undo</span><span><kbd>Ctrl Shift Z</kbd> Redo</span><span><kbd>Ctrl S</kbd> Simpan JSON</span></div></div><button data-close="help-dialog" class="primary-btn">Mulai menyusun</button></dialog>
+  <dialog id="confirm-dialog"><h2 id="confirm-title">Proyek baru?</h2><p id="confirm-message"></p><div class="dialog-actions"><button id="confirm-cancel" class="secondary-btn">Batal</button><button id="confirm-ok" class="primary-btn">Lanjutkan</button></div></dialog>
+  <noscript>Aplikasi membutuhkan JavaScript aktif di browser.</noscript>
+</body>
+</html>
