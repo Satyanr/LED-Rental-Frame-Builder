@@ -1,3 +1,13 @@
+# Pembaruan 1.1 — Hollow tengah
+
+- Input lebar, tinggi, dan jarak hollow tengah memakai mm; koordinat dan grid tetap meter.
+- Contoh 2000 × 2000 mm dengan jarak 1000 mm ditampilkan di browser sebagai satu batang horizontal di tengah.
+- Mengubah tinggi menjadi 3000 mm menghasilkan dua batang pada 1000 dan 2000 mm.
+- Nilai 0 menghapus batang tengah; Undo mengembalikannya.
+- Duplikasi mempertahankan jarak dan jumlah batang tengah.
+- Contoh JSON dengan jarak 1000 mm dimuat ulang di browser: ukuran 2000 × 2000 mm dan satu batang tengah dipulihkan tanpa error.
+- 11 pemeriksaan otomatis lolos, termasuk geometri batang, batas dalam frame, penyimpanan data baru, dan pemuatan JSON lama.
+
 # Catatan verifikasi
 
 Versi 1.0 · 5 November 2026.

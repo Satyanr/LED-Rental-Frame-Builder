@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { HOLLOW, MAX_FRAMES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, numeric, normalizeDegrees, snapValue, validateProject, makeProject } from './project.js';
+import { HOLLOW, MAX_FRAMES, MAX_PROJECT_BRACES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, braceSpacing, braceOffsetsMm, frameMembers, numeric, normalizeDegrees, snapValue, validateProject, makeProject } from './project.js';
 
 const $ = id => document.getElementById(id);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -9,6 +9,7 @@ const numberFormat = new Intl.NumberFormat('id-ID',{maximumFractionDigits:3});
 const fmt = n => numberFormat.format(Math.abs(n)<0.0000001 ? 0 : n);
 const inputNumber = input => input.value.trim() === '' ? NaN : Number(input.value);
 const round = n => Math.abs(n)<1e-8 ? 0 : Number(n.toFixed(6));
+const inputSpacing = input => braceSpacing(input.value.trim()===''?0:Number(input.value));
 let toastTimer;
 function toast(message,error=false) {
   clearTimeout(toastTimer); $('toast').textContent=message; $('toast').classList.toggle('error',error); $('toast').hidden=false;
@@ -69,31 +70,31 @@ function main() {
     if(!selected)return;
     selected.position.clampScalar(-LIMIT_POSITION,LIMIT_POSITION);syncSelected();syncFields();dirty=true;
   });
-  // Four solid exterior envelopes represent the four welded hollow tubes.
-  // There is no panel or invisible surface spanning the opening.
+  // Exterior envelopes represent the perimeter tubes and optional horizontal braces.
+  // All members belong to the same frame group; the openings remain empty.
   function buildFrame(data) {
     const group=new THREE.Group();group.userData.frame={...data,position:[...data.position],rotation:[...data.rotation]};
     const mat=new THREE.MeshStandardMaterial({color:0x8faaa0,metalness:.45,roughness:.36});
     const edgeMat=new THREE.LineBasicMaterial({color:0x587466,transparent:true,opacity:.66});
     group.userData.material=mat;group.userData.edgeMaterial=edgeMat;
-    for(let i=0;i<4;i++){
-      const mesh=new THREE.Mesh(cube,mat);mesh.userData.frameRoot=group;mesh.name='beam';
-      mesh.add(new THREE.LineSegments(cubeEdges,edgeMat));group.add(mesh);
-    }
-    resizeFrame(group,data.width,data.height);
+    resizeFrame(group,data.width,data.height,data.braceSpacingMm??0);
     group.position.fromArray(data.position);group.rotation.set(...data.rotation.map(THREE.MathUtils.degToRad),'XYZ');
     framesRoot.add(group);objects.set(data.id,group);return group;
   }
-  function resizeFrame(group,w,h) {
-    const beam=group.children;
-    for(let i=0;i<2;i++){beam[i].scale.set(w,HOLLOW,HOLLOW);beam[i].position.set(0,(i===0?1:-1)*(h-HOLLOW)/2,0);}
-    for(let i=2;i<4;i++){beam[i].scale.set(HOLLOW,h-HOLLOW*2,HOLLOW);beam[i].position.set((i===2?1:-1)*(w-HOLLOW)/2,0,0);}
-    group.userData.frame.width=w;group.userData.frame.height=h;dirty=true;
+  function resizeFrame(group,w,h,spacingMm=group.userData.frame.braceSpacingMm??0) {
+    const members=frameMembers(w,h,spacingMm);
+    while(group.children.length>members.length)group.remove(group.children[group.children.length-1]);
+    while(group.children.length<members.length){
+      const mesh=new THREE.Mesh(cube,group.userData.material);mesh.userData.frameRoot=group;mesh.name='beam';
+      mesh.add(new THREE.LineSegments(cubeEdges,group.userData.edgeMaterial));group.add(mesh);
+    }
+    members.forEach((member,i)=>{group.children[i].scale.fromArray(member.size);group.children[i].position.fromArray(member.position);});
+    group.userData.frame.width=w;group.userData.frame.height=h;group.userData.frame.braceSpacingMm=spacingMm;dirty=true;
   }
   function disposeFrame(group) {framesRoot.remove(group);group.userData.material.dispose();group.userData.edgeMaterial.dispose();}
   function frameData(group) {
     const f=group.userData.frame;
-    return {id:f.id,name:f.name,width:f.width,height:f.height,position:group.position.toArray().map(round),rotation:[group.rotation.x,group.rotation.y,group.rotation.z].map(v=>round(normalizeDegrees(THREE.MathUtils.radToDeg(v))))};
+    return {id:f.id,name:f.name,width:f.width,height:f.height,braceSpacingMm:f.braceSpacingMm??0,position:group.position.toArray().map(round),rotation:[group.rotation.x,group.rotation.y,group.rotation.z].map(v=>round(normalizeDegrees(THREE.MathUtils.radToDeg(v))))};
   }
   function allFrames() {return [...objects.values()].map(frameData);}
   function syncSelected() {if(selected){const f=frameData(selected);selected.userData.frame=f;updateListItem(selected);}}
@@ -166,10 +167,10 @@ function main() {
   function syncFields() {
     if(!selected)return;
     const f=frameData(selected);const id=f.name.toUpperCase();$('selected-id').textContent=id.length>24?id.slice(0,24)+'…':id;
-    const fields={'frame-name':f.name,'frame-width':f.width,'frame-height':f.height};
+    const fields={'frame-name':f.name,'frame-width':round(f.width*1000),'frame-height':round(f.height*1000),'frame-brace-spacing':f.braceSpacingMm};
     ['x','y','z'].forEach((axis,i)=>{fields[`position-${axis}`]=f.position[i];fields[`rotation-${axis}`]=Number(f.rotation[i].toFixed(3));});
     for(const [id,value] of Object.entries(fields)){if(document.activeElement!==$(id))$(id).value=String(value);}
-    updateDimensions();
+    updateBraceSummary('frame');updateDimensions();
   }
   function contentDigest() {return JSON.stringify({frames:allFrames(),settings});}
   function markEdited() {projectDirty=contentDigest()!==savedFrames;$('save-status').textContent=projectDirty?'Perubahan belum disimpan':'Proyek tersimpan · lokal';}
@@ -190,12 +191,26 @@ function main() {
     const next=historyIndex+delta;if(next<0||next>=histories.length)return;historyIndex=next;
     const state=JSON.parse(histories[historyIndex]);replaceFrames(state.frames,state.selected);updateHistoryButtons();markEdited();toast(delta<0?'Perubahan dibatalkan.':'Perubahan dikembalikan.');
   }
+  function ensureBraceBudget(height,spacingMm,replace=null) {
+    let total=braceOffsetsMm(height,spacingMm).length;
+    for(const g of objects.values())if(g!==replace)total+=braceOffsetsMm(g.userData.frame.height,g.userData.frame.braceSpacingMm??0).length;
+    if(total>MAX_PROJECT_BRACES)throw new Error(`Maksimal ${MAX_PROJECT_BRACES} hollow tengah dalam satu proyek. Perbesar jarak atau kurangi frame.`);
+  }
+  function updateBraceSummary(prefix) {
+    const el=$(`${prefix}-brace-summary`);
+    try{
+      const height=inputNumber($(`${prefix}-height`))/1000,spacingMm=inputSpacing($(`${prefix}-brace-spacing`));
+      const offsets=braceOffsetsMm(height,spacingMm);
+      el.textContent=offsets.length?`${offsets.length} hollow horizontal · ${offsets.length<=4?offsets.map(fmt).join(', ')+' mm dari bawah':'setiap '+fmt(spacingMm)+' mm dari bawah'}`:'Tanpa hollow tengah.';
+    }catch{el.textContent='Isi tinggi valid dan jarak 0 atau minimal 100 mm.';}
+  }
   function addFrame(position=null) {
     if(objects.size>=MAX_FRAMES){toast(`Maksimal ${MAX_FRAMES} frame per proyek.`,true);return;}
     try {
-      const width=dimension(inputNumber($('add-width')),'Lebar'),height=dimension(inputNumber($('add-height')),'Tinggi');
+      const width=dimension(inputNumber($('add-width'))/1000,'Lebar'),height=dimension(inputNumber($('add-height'))/1000,'Tinggi'),spacingMm=inputSpacing($('add-brace-spacing'));
+      ensureBraceBudget(height,spacingMm);
       const p=position||[0,height/2,0];
-      const group=buildFrame({id:uid(),name:`Frame ${String(frameCounter++).padStart(2,'0')}`,width,height,position:p,rotation:[0,0,0]});
+      const group=buildFrame({id:uid(),name:`Frame ${String(frameCounter++).padStart(2,'0')}`,width,height,braceSpacingMm:spacingMm,position:p,rotation:[0,0,0]});
       renderList();select(group);pushHistory();
     if(!position)fitAll(true);toast(`${group.userData.frame.name} ditambahkan${position?' di lantai.':' di titik asal.'}`);
       if(innerWidth<=800)document.querySelector('.library').classList.remove('panel-open');
@@ -203,6 +218,7 @@ function main() {
   }
   function duplicate() {
     if(!selected)return;if(objects.size>=MAX_FRAMES){toast(`Maksimal ${MAX_FRAMES} frame per proyek.`,true);return;}
+    try{ensureBraceBudget(selected.userData.frame.height,selected.userData.frame.braceSpacingMm??0);}catch(e){toast(e.message,true);return;}
     const data=frameData(selected);data.id=uid();data.name=`Frame ${String(frameCounter++).padStart(2,'0')}`;
     // A small depth offset makes duplicates individually selectable, without arranging a pattern.
     const offset=data.position[2]+.15<=LIMIT_POSITION ? .15 : -.15;data.position[2]=round(data.position[2]+offset);
@@ -324,7 +340,7 @@ function main() {
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
   const palette=$('frame-palette');let paletteDrag=false;
   palette.addEventListener('dragstart',event=>{
-    try{dimension(inputNumber($('add-width')));dimension(inputNumber($('add-height')));}catch(e){event.preventDefault();toast(e.message,true);return;}
+    try{dimension(inputNumber($('add-width'))/1000);const height=dimension(inputNumber($('add-height'))/1000);ensureBraceBudget(height,inputSpacing($('add-brace-spacing')));}catch(e){event.preventDefault();toast(e.message,true);return;}
     paletteDrag=true;event.dataTransfer.setData('application/x-led-frame','new-frame');event.dataTransfer.effectAllowed='copy';$('drop-overlay').hidden=false;
   });
   palette.addEventListener('dragend',()=>{paletteDrag=false;$('drop-overlay').hidden=true;});
@@ -335,13 +351,18 @@ function main() {
     if(!point||Math.abs(raycaster.ray.direction.y)<.025){toast('Penempatan di lantai memerlukan tampilan Iso atau Top. Pilih salah satu, lalu seret kembali.',true);return;}
     let {x,z}=point;if(settings.snap){x=snapValue(x,settings.positionStep);z=snapValue(z,settings.positionStep);}
     if(Math.abs(x)>LIMIT_POSITION||Math.abs(z)>LIMIT_POSITION){toast('Titik penempatan di luar batas ±500 meter.',true);return;}
-    addFrame([x,inputNumber($('add-height'))/2,z]);
+    addFrame([x,inputNumber($('add-height'))/2000,z]);
   });
   $('add-form').addEventListener('submit',e=>{e.preventDefault();addFrame();});
   $('frame-name').addEventListener('change',()=>applySelectedChange(()=>{selected.userData.frame.name=$('frame-name').value.trim()||'Frame';$('frame-name').value=selected.userData.frame.name;$('status-text').textContent=selected.userData.frame.name;}));
   for(const field of ['width','height'])$(`frame-${field}`).addEventListener('change',()=>applySelectedChange(()=>{
-    const f=selected.userData.frame;const value=dimension(inputNumber($(`frame-${field}`)),field==='width'?'Lebar':'Tinggi');resizeFrame(selected,field==='width'?value:f.width,field==='height'?value:f.height);
+    const f=selected.userData.frame;const value=dimension(inputNumber($(`frame-${field}`))/1000,field==='width'?'Lebar':'Tinggi');
+    const w=field==='width'?value:f.width,h=field==='height'?value:f.height;ensureBraceBudget(h,f.braceSpacingMm??0,selected);resizeFrame(selected,w,h);
   }));
+  $('frame-brace-spacing').addEventListener('change',()=>applySelectedChange(()=>{
+    const f=selected.userData.frame,spacingMm=inputSpacing($('frame-brace-spacing'));ensureBraceBudget(f.height,spacingMm,selected);resizeFrame(selected,f.width,f.height,spacingMm);
+  }));
+  ['add-height','add-brace-spacing'].forEach(id=>$(id).addEventListener('input',()=>updateBraceSummary('add')));
   for(const axis of ['x','y','z']){
     $(`position-${axis}`).addEventListener('change',()=>applySelectedChange(()=>{selected.position[axis]=numeric(inputNumber($(`position-${axis}`)),-LIMIT_POSITION,LIMIT_POSITION,'Posisi (meter)');}));
     $(`rotation-${axis}`).addEventListener('change',()=>applySelectedChange(()=>{selected.rotation[axis]=THREE.MathUtils.degToRad(normalizeDegrees(numeric(inputNumber($(`rotation-${axis}`)),-36000,36000,'Rotasi (derajat)')));}));
@@ -420,7 +441,7 @@ function main() {
     const changed=lastStageWidth>0&&(width!==lastStageWidth||height!==lastStageHeight);
     lastStageWidth=width;lastStageHeight=height;resize();if(changed)fitAll(true);
   }).observe(stage);window.addEventListener('resize',resize);
-  const first=buildFrame({id:uid(),name:'Frame 01',width:1,height:2,position:[0,1,0],rotation:[0,0,0]});frameCounter=2;renderList();select(first);applySettings();setView('iso');savedFrames=contentDigest();pushHistory();$('save-status').textContent='Contoh 1 × 2 m · siap disusun';$('loading').hidden=true;
+  const first=buildFrame({id:uid(),name:'Frame 01',width:1,height:2,braceSpacingMm:0,position:[0,1,0],rotation:[0,0,0]});frameCounter=2;renderList();select(first);updateBraceSummary('add');applySettings();setView('iso');savedFrames=contentDigest();pushHistory();$('save-status').textContent='Contoh 1000 × 2000 mm · siap disusun';$('loading').hidden=true;
   function render() {requestAnimationFrame(render);orbit.update();if(dirty){renderer.render(scene,camera);positionDimensionLabels();dirty=false;}}
   render();
 }
