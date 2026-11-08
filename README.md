@@ -1,4 +1,4 @@
-# LED Rental Frame Builder
+# Contruction Builder (LED Rental)
 
 Versi **1.2.0** — simpan/muat jarak hollow tengah dan rekap frame terpakai.
 
@@ -7,7 +7,7 @@ Editor 3D lokal untuk menyusun rangka LED rental secara manual. Dibuat dengan HT
 ## Menjalankan
 
 1. Ekstrak ZIP terlebih dahulu jika Anda mengunduh paket ZIP.
-2. Klik dua kali **LED-Rental-Frame-Builder.html**. File ini sudah berisi seluruh aplikasi, termasuk pustaka 3D.
+2. Klik dua kali **Contruction-Builder-LED-Rental.html**. File ini sudah berisi seluruh aplikasi, termasuk pustaka 3D.
 3. Alternatif: buka **index.html** atau **BUKA-APLIKASI.cmd**. Untuk versi `index.html`, pertahankan `styles.css` dan `app.bundle.js` di folder yang sama.
 4. Gunakan Chrome, Edge, atau Firefox dengan WebGL aktif. Semua proses penyusunan berlangsung di browser perangkat Anda.
 
@@ -81,7 +81,7 @@ Panel kiri dan kanan berubah menjadi panel buka/tutup melalui **Frame & objek** 
 
 ## File dan pengembangan
 
-- `LED-Rental-Frame-Builder.html`: aplikasi mandiri satu file, bisa dibuka langsung.
+- `Contruction-Builder-LED-Rental.html`: aplikasi mandiri satu file, bisa dibuka langsung.
 - `index.html`, `styles.css`, `app.bundle.js`: versi file terpisah, juga bisa dibuka langsung.
 - `src/app.js`: antarmuka, geometri, kamera dan interaksi Three.js.
 - `src/project.js`: format proyek dan validasi.

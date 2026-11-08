@@ -79,7 +79,7 @@ export function frameSummary(frames) {
   return {total:frames.length,bySize:[...groups.values()].sort((a,b)=>b.width-a.width||b.height-a.height)};
 }
 export function validateProject(data) {
-  if (!data || typeof data !== 'object' || data.app !== 'led-rental-frame-builder' || data.version !== 1 || data.units !== 'meters') throw new Error('Format proyek tidak didukung. Pilih JSON dari LED Rental Frame Builder versi 1.');
+  if (!data || typeof data !== 'object' || data.app !== 'led-rental-frame-builder' || data.version !== 1 || data.units !== 'meters') throw new Error('Format proyek tidak didukung. Pilih JSON dari Contruction Builder (LED Rental) versi 1.');
   if (data.hollow?.width !== HOLLOW || data.hollow?.height !== HOLLOW) throw new Error('Proyek harus memakai profil hollow tetap 40 × 40 mm.');
   if (!Array.isArray(data.frames) || data.frames.length > MAX_FRAMES) throw new Error(`Proyek maksimal ${MAX_FRAMES} frame.`);
   const frames = data.frames.map(validateFrame);

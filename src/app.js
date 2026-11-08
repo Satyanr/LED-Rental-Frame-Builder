@@ -425,7 +425,7 @@ function main() {
       const output=document.createElement('canvas');output.width=canvas.width;output.height=canvas.height;const ctx=output.getContext('2d');if(!ctx)throw new Error('Tidak dapat membuat PNG.');ctx.drawImage(canvas,0,0);
       const scale=canvas.width/stage.clientWidth;ctx.scale(scale,scale);
       if(dimensionRoot.visible){positionDimensionLabels();for(const id of ['dimension-width','dimension-height']){const el=$(id);if(el.hidden)continue;const x=parseFloat(el.style.left),y=parseFloat(el.style.top);ctx.font='12px Consolas, monospace';const width=ctx.measureText(el.textContent).width+14;ctx.fillStyle='#f6f9f0';ctx.fillRect(x-width/2,y-10,width,20);ctx.strokeStyle='#bdcfb4';ctx.strokeRect(x-width/2,y-10,width,20);ctx.fillStyle='#3f6854';ctx.textAlign='center';ctx.fillText(el.textContent,x,y+4);}}
-      ctx.font='11px Segoe UI, sans-serif';ctx.fillStyle='#748b69';ctx.textAlign='left';ctx.fillText('LED Rental Frame Builder  /  Hollow 40 × 40 mm  /  Meter',18,stage.clientHeight-17);
+      ctx.font='11px Segoe UI, sans-serif';ctx.fillStyle='#748b69';ctx.textAlign='left';ctx.fillText('Contruction Builder (LED Rental)  /  Hollow 40 × 40 mm  /  Meter',18,stage.clientHeight-17);
       gizmo.visible=old;dirty=true;
       const blob=await new Promise(resolve=>output.toBlob(resolve,'image/png'));if(!blob)throw new Error('Ekspor PNG gagal.');download(blob,'led-frame-structure.png');toast('PNG tampilan 3D berhasil diekspor.');
     }catch(e){gizmo.visible=!!selected;dirty=true;toast(e.message,true);}finally{button.disabled=false;}

@@ -1,9 +1,9 @@
 {
-  "name": "led-rental-frame-builder",
+  "name": "contruction-builder-led-rental",
   "version": "1.2.0",
   "private": true,
   "type": "module",
-  "description": "Offline 3D editor for manually arranging 40x40 mm LED rental frames",
+  "description": "Contruction Builder (LED Rental), an offline 3D editor for manually arranging 40x40 mm LED rental frames",
   "scripts": {"build":"node build.mjs", "test":"node --test tests/project.test.js"},
   "dependencies": {"three":"0.170.0"},
   "devDependencies": {"esbuild":"0.25.12"}
