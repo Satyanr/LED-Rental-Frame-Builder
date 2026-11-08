@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { MAX_FRAMES, MAX_PROJECT_BRACES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, braceSpacing, braceOffsetsMm, frameMembers, frameSummary, validateFrameTemplate, numeric, normalizeDegrees, snapValue, validateProject, makeProject } from './project.js';
+import { HOLLOW, MAX_FRAMES, MAX_PROJECT_BRACES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, braceSpacing, braceOffsetsMm, objectMembers, objectSummary, validateFrameTemplate, validateLedTemplate, numeric, normalizeDegrees, snapValue, validateProject, makeProject } from './project.js';
 
 const $ = id => document.getElementById(id);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -49,6 +49,7 @@ function main() {
   let currentView='iso', orthoSpan=5.5, dirty=true, projectDirty=false, savedFrames='', frameCounter=1;
   let mode='translate', drag=null, gizmoGesture=false, ignoreNextGizmoCommit=false;
   let histories=[], historyIndex=-1;
+  let paletteType='frame', frameShape='rectangle';
   const perspective=new THREE.PerspectiveCamera(40,1,0.01,15000);
   const orthographic=new THREE.OrthographicCamera(-3,3,3,-3,0.01,15000);
   let camera=perspective; camera.position.set(4.5,3.5,6);
@@ -74,27 +75,32 @@ function main() {
   // All members belong to the same frame group; the openings remain empty.
   function buildFrame(data) {
     const group=new THREE.Group();group.userData.frame={...data,position:[...data.position],rotation:[...data.rotation]};
-    const mat=new THREE.MeshStandardMaterial({color:0x8faaa0,metalness:.45,roughness:.36});
-    const edgeMat=new THREE.LineBasicMaterial({color:0x587466,transparent:true,opacity:.66});
+    const isLed=data.type==='led';
+    const mat=new THREE.MeshStandardMaterial({color:isLed?0x202b35:0x8faaa0,metalness:.45,roughness:.36});
+    const edgeMat=new THREE.LineBasicMaterial({color:isLed?0x718594:0x587466,transparent:true,opacity:isLed ? .9 : .66});
     group.userData.material=mat;group.userData.edgeMaterial=edgeMat;
+    if(isLed)group.userData.screenMaterial=new THREE.MeshBasicMaterial({color:0x203c55});
     resizeFrame(group,data.width,data.height,data.braceSpacingMm??0);
     group.position.fromArray(data.position);group.rotation.set(...data.rotation.map(THREE.MathUtils.degToRad),'XYZ');
     framesRoot.add(group);objects.set(data.id,group);return group;
   }
   function resizeFrame(group,w,h,spacingMm=group.userData.frame.braceSpacingMm??0) {
-    const members=frameMembers(w,h,spacingMm);
+    const f=group.userData.frame;
+    const members=objectMembers({...f,width:w,height:h,braceSpacingMm:spacingMm});
     while(group.children.length>members.length)group.remove(group.children[group.children.length-1]);
     while(group.children.length<members.length){
       const mesh=new THREE.Mesh(cube,group.userData.material);mesh.userData.frameRoot=group;mesh.name='beam';
       mesh.add(new THREE.LineSegments(cubeEdges,group.userData.edgeMaterial));group.add(mesh);
     }
-    members.forEach((member,i)=>{group.children[i].scale.fromArray(member.size);group.children[i].position.fromArray(member.position);});
-    group.userData.frame.width=w;group.userData.frame.height=h;group.userData.frame.braceSpacingMm=spacingMm;dirty=true;
+    members.forEach((member,i)=>{const mesh=group.children[i];mesh.scale.fromArray(member.size);mesh.position.fromArray(member.position);mesh.material=member.surface==='screen'?group.userData.screenMaterial:group.userData.material;mesh.children[0].visible=member.surface!=='screen';});
+    f.width=w;f.height=h;f.braceSpacingMm=spacingMm;
+    if(!f.type||f.type==='frame'){f.type='frame';f.shape=w===h?'square':'rectangle';}
+    dirty=true;
   }
-  function disposeFrame(group) {framesRoot.remove(group);group.userData.material.dispose();group.userData.edgeMaterial.dispose();}
+  function disposeFrame(group) {framesRoot.remove(group);group.userData.material.dispose();group.userData.edgeMaterial.dispose();group.userData.screenMaterial?.dispose();}
   function frameData(group) {
     const f=group.userData.frame;
-    return {id:f.id,name:f.name,width:f.width,height:f.height,braceSpacingMm:f.braceSpacingMm??0,position:group.position.toArray().map(round),rotation:[group.rotation.x,group.rotation.y,group.rotation.z].map(v=>round(normalizeDegrees(THREE.MathUtils.radToDeg(v))))};
+    return {id:f.id,name:f.name,type:f.type??'frame',...(f.type==='frame'?{shape:f.shape}:{}),width:f.width,height:f.height,braceSpacingMm:f.braceSpacingMm??0,position:group.position.toArray().map(round),rotation:[group.rotation.x,group.rotation.y,group.rotation.z].map(v=>round(normalizeDegrees(THREE.MathUtils.radToDeg(v))))};
   }
   function allFrames() {return [...objects.values()].map(frameData);}
   function syncSelected() {if(selected){const f=frameData(selected);selected.userData.frame=f;updateListItem(selected);}}
@@ -140,49 +146,73 @@ function main() {
   }
   function updateListItem(group) {
     const row=$('object-list').querySelector(`[data-id="${CSS.escape(group.userData.frame.id)}"]`);if(!row)return;
-    const f=group.userData.frame;row.querySelector('strong').textContent=f.name;row.querySelector('small').textContent=`${fmt(f.width)} × ${fmt(f.height)} m`;
+    const f=group.userData.frame;row.querySelector('strong').textContent=f.name;row.querySelector('small').textContent=objectSize(f);
   }
+  function objectSize(f) {return f.type==='hollow'?`Hollow 40 × 40 · ${fmt(f.height*1000)} mm`: `${f.type==='led'?'LED · ':''}${fmt(f.width*1000)} × ${fmt(f.height*1000)} mm`;}
   function renderList() {
     $('object-list').replaceChildren();let index=0;
     for(const group of objects.values()){
       const f=group.userData.frame;index++;
       const row=document.createElement('button');row.type='button';row.className='object-row';row.dataset.id=f.id;row.setAttribute('role','option');
-      const icon=document.createElement('span');icon.className='object-icon';
+      const icon=document.createElement('span');icon.className=`object-icon ${f.type??'frame'}`;
       const info=document.createElement('span');info.className='object-info';
-      const name=document.createElement('strong');name.textContent=f.name;const size=document.createElement('small');size.textContent=`${fmt(f.width)} × ${fmt(f.height)} m`;info.append(name,size);
+      const name=document.createElement('strong');name.textContent=f.name;const size=document.createElement('small');size.textContent=objectSize(f);info.append(name,size);
       const number=document.createElement('span');number.className='object-index';number.textContent=String(index).padStart(2,'0');row.append(icon,info,number);
       row.addEventListener('click',()=>{select(group);if(innerWidth<=800){document.querySelector('.library').classList.remove('panel-open');}});
       $('object-list').append(row);
     }
-    $('object-count').textContent=String(objects.size);$('status-count').textContent=`${objects.size} frame`;$('empty-list').hidden=objects.size>0;$('viewport-empty').hidden=objects.size>0;updateSelectionList();renderFrameSummary();
+    $('object-count').textContent=String(objects.size);$('status-count').textContent=`${objects.size} objek`;$('empty-list').hidden=objects.size>0;$('viewport-empty').hidden=objects.size>0;updateSelectionList();renderFrameSummary();
   }
   function renderFrameSummary() {
-    const summary=frameSummary(allFrames()),key=JSON.stringify(summary);if(key===lastSummary)return;lastSummary=key;$('summary-total').textContent=`${summary.total} pcs`;
+    const summary=objectSummary(allFrames()),key=JSON.stringify(summary);if(key===lastSummary)return;lastSummary=key;$('summary-total').textContent=`${summary.total} pcs`;
     $('frame-summary-body').replaceChildren();$('frame-summary-empty').hidden=summary.total>0;$('frame-summary-table').hidden=summary.total===0;
     for(const item of summary.bySize){
       const row=document.createElement('tr'),size=document.createElement('td'),quantity=document.createElement('td');
-      size.textContent=`${fmt(item.width)} × ${fmt(item.height)} m`;quantity.textContent=`${item.quantity} pcs`;row.append(size,quantity);$('frame-summary-body').append(row);
+      const kind=document.createElement('small');kind.className='summary-kind';kind.textContent=item.type==='led'?'LED Screen':item.type==='hollow'?'Hollow lurus':'Frame';
+      size.append(kind,document.createTextNode(item.type==='hollow'?`40 × 40 · ${fmt(item.height*1000)} mm`:`${fmt(item.width*1000)} × ${fmt(item.height*1000)} mm`));quantity.textContent=`${item.quantity} pcs`;row.append(size,quantity);$('frame-summary-body').append(row);
     }
   }
   function updateSelectionList() {for(const row of $('object-list').children){const active=row.dataset.id===selected?.userData.frame.id;row.classList.toggle('active',active);row.setAttribute('aria-selected',String(active));}}
   function select(group) {
-    if(selected){selected.userData.material.color.setHex(0x8faaa0);selected.userData.material.emissive.setHex(0);selected.userData.edgeMaterial.color.setHex(0x587466);}
+    if(selected){const led=selected.userData.frame.type==='led';selected.userData.material.color.setHex(led?0x202b35:0x8faaa0);selected.userData.material.emissive.setHex(0);selected.userData.edgeMaterial.color.setHex(led?0x718594:0x587466);selected.userData.screenMaterial?.color.setHex(0x203c55);}
     selected=group||null;transform.detach();
-    if(selected){selected.userData.material.color.setHex(0x628f72);selected.userData.material.emissive.setHex(0x0c2110);selected.userData.edgeMaterial.color.setHex(0x356349);transform.attach(selected);}
-    $('no-selection').hidden=!!selected;$('selection-controls').hidden=!selected;updateSelectionList();syncFields();updateDimensions();dirty=true;
+    if(selected){const led=selected.userData.frame.type==='led';selected.userData.material.color.setHex(led?0x3b645f:0x628f72);selected.userData.material.emissive.setHex(0x0c2110);selected.userData.edgeMaterial.color.setHex(led?0x9ec4bd:0x356349);selected.userData.screenMaterial?.color.setHex(0x2c5269);transform.attach(selected);}
+    $('no-selection').hidden=!!selected;$('selection-controls').hidden=!selected;if(!selected)$('inspector-title').textContent='Properti objek';updateSelectionList();syncFields();updateDimensions();dirty=true;
     $('status-text').textContent=selected?selected.userData.frame.name:'Siap menyusun';
   }
   function syncFields() {
     if(!selected)return;
     const f=frameData(selected);const id=f.name.toUpperCase();$('selected-id').textContent=id.length>24?id.slice(0,24)+'…':id;
+    const led=f.type==='led',hollow=f.type==='hollow';
+    $('inspector-title').textContent=led?'Properti LED Screen':hollow?'Properti hollow':'Properti frame';
+    $('selected-type').textContent=led?'VIDEOTRON · 1 KABINET':hollow?'HOLLOW LURUS · 40 × 40 MM':f.shape==='square'?'FRAME KOTAK':'FRAME PERSEGI PANJANG';
+    $('frame-brace-controls').hidden=led||hollow;$('frame-width').disabled=hollow;$('frame-width').min=hollow?'40':'100';
+    $('frame-height-label').textContent=hollow?'Panjang':'Tinggi';$('selected-led-size-field').hidden=!led;
+    $('selected-led-size').value=ledPreset(f.width,f.height);
+    $('dimension-hint').textContent=led?'Bezel 2 mm · tebal kabinet 80 mm. Ukuran berpusat di titik tengah.':hollow?'Profil tetap 40 × 40 mm. Panjang searah sumbu Y lokal.':'Perubahan ukuran berpusat di titik tengah.';
     const fields={'frame-name':f.name,'frame-width':round(f.width*1000),'frame-height':round(f.height*1000),'frame-brace-spacing':f.braceSpacingMm};
     ['x','y','z'].forEach((axis,i)=>{fields[`position-${axis}`]=f.position[i];fields[`rotation-${axis}`]=Number(f.rotation[i].toFixed(3));});
     for(const [id,value] of Object.entries(fields)){if(document.activeElement!==$(id))$(id).value=String(value);}
     updateBraceSummary('frame');updateDimensions();
   }
-  function readFrameTemplate() {return validateFrameTemplate({width:inputNumber($('add-width'))/1000,height:inputNumber($('add-height'))/1000,braceSpacingMm:inputSpacing($('add-brace-spacing'))});}
+  function readFrameTemplate() {return validateFrameTemplate({width:inputNumber($('add-width'))/1000,height:inputNumber($('add-height'))/1000,braceSpacingMm:frameShape==='hollow'?0:inputSpacing($('add-brace-spacing'))});}
   function restoreFrameTemplate(template) {$('add-width').value=String(round(template.width*1000));$('add-height').value=String(round(template.height*1000));$('add-brace-spacing').value=String(template.braceSpacingMm);updateBraceSummary('add');}
-  function contentDigest() {return JSON.stringify({frames:allFrames(),settings,templateInputs:[$('add-width').value,$('add-height').value,$('add-brace-spacing').value]});}
+  function readLedTemplate() {return validateLedTemplate({width:inputNumber($('add-led-width'))/1000,height:inputNumber($('add-led-height'))/1000});}
+  function ledPreset(w,h) {return w===1&&h===.5?'1000x500':w===.5&&h===.5?'500x500':'custom';}
+  function restoreLedTemplate(t) {$('add-led-width').value=String(round(t.width*1000));$('add-led-height').value=String(round(t.height*1000));$('led-size').value=ledPreset(t.width,t.height);}
+  function updatePalette() {
+    $('frame-panel').hidden=paletteType!=='frame';$('led-panel').hidden=paletteType!=='led';
+    for(const b of $$('[data-object-type]')){const on=b.dataset.objectType===paletteType;b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;}
+    for(const b of $$('[data-frame-shape]')){const on=b.dataset.frameShape===frameShape;b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;}
+    $('frame-shape-panel').setAttribute('aria-labelledby',`shape-${frameShape}`);
+    const hollow=frameShape==='hollow';$('frame-palette').dataset.shape=frameShape;
+    $('palette-name').textContent=hollow?'Batang hollow lurus':frameShape==='square'?'Frame kotak':'Frame persegi panjang';
+    $('add-width-field').hidden=hollow;$('add-width').disabled=hollow;$('frame-size-fields').classList.toggle('single-field',hollow);
+    $('add-height-label').textContent=hollow?'Panjang hollow':'Tinggi luar';$('add-brace-controls').hidden=hollow;$('add-brace-spacing').disabled=hollow;
+    $('add-frame-label').textContent=hollow?'Add Hollow':'Add Frame';
+    if(savedFrames)markEdited();
+  }
+  function contentDigest() {return JSON.stringify({frames:allFrames(),settings,paletteType,frameShape,templateInputs:[$('add-width').value,$('add-height').value,$('add-brace-spacing').value,$('add-led-width').value,$('add-led-height').value]});}
   function markEdited() {projectDirty=contentDigest()!==savedFrames;$('save-status').textContent=projectDirty?'Perubahan belum disimpan':'Proyek tersimpan · lokal';}
   function snapshot() {return JSON.stringify({frames:allFrames(),selected:selected?.userData.frame.id||null});}
   function pushHistory() {
@@ -215,27 +245,34 @@ function main() {
       el.textContent=offsets.length?`${offsets.length} hollow horizontal · ${offsets.length<=4?offsets.map(fmt).join(', ')+' mm dari bawah':'setiap '+fmt(spacingMm)+' mm dari bawah'}`:'Tanpa hollow tengah.';
     }catch{el.textContent='Isi tinggi valid dan jarak 0 atau minimal 100 mm.';}
   }
-  function addFrame(position=null) {
-    if(objects.size>=MAX_FRAMES){toast(`Maksimal ${MAX_FRAMES} frame per proyek.`,true);return;}
+  function readNewObject(type=paletteType) {
+    if(type==='led')return {...readLedTemplate(),type:'led',braceSpacingMm:0};
+    if(frameShape==='hollow')return {type:'hollow',width:HOLLOW,height:dimension(inputNumber($('add-height'))/1000,'Panjang hollow'),braceSpacingMm:0};
+    const template=readFrameTemplate();
+    if(frameShape==='square'&&template.width!==template.height)throw new Error('Lebar dan tinggi frame kotak harus sama.');
+    return {...template,type:'frame',shape:frameShape};
+  }
+  function addFrame(position=null,type=paletteType) {
+    if(objects.size>=MAX_FRAMES){toast(`Maksimal ${MAX_FRAMES} objek per proyek.`,true);return;}
     try {
-      const width=dimension(inputNumber($('add-width'))/1000,'Lebar'),height=dimension(inputNumber($('add-height'))/1000,'Tinggi'),spacingMm=inputSpacing($('add-brace-spacing'));
-      ensureBraceBudget(height,spacingMm);
-      const p=position||[0,height/2,0];
-      const group=buildFrame({id:uid(),name:`Frame ${String(frameCounter++).padStart(2,'0')}`,width,height,braceSpacingMm:spacingMm,position:p,rotation:[0,0,0]});
+      const data=readNewObject(type);ensureBraceBudget(data.height,data.braceSpacingMm);
+      const p=position||[0,data.height/2,0];
+      const name=data.type==='led'?'LED Screen':data.type==='hollow'?'Hollow':'Frame';
+      const group=buildFrame({...data,id:uid(),name:`${name} ${String(frameCounter++).padStart(2,'0')}`,position:p,rotation:[0,0,0]});
       renderList();select(group);pushHistory();
     if(!position)fitAll(true);toast(`${group.userData.frame.name} ditambahkan${position?' di lantai.':' di titik asal.'}`);
       if(innerWidth<=800)document.querySelector('.library').classList.remove('panel-open');
     }catch(e){toast(e.message,true);}
   }
   function duplicate() {
-    if(!selected)return;if(objects.size>=MAX_FRAMES){toast(`Maksimal ${MAX_FRAMES} frame per proyek.`,true);return;}
+    if(!selected)return;if(objects.size>=MAX_FRAMES){toast(`Maksimal ${MAX_FRAMES} objek per proyek.`,true);return;}
     try{ensureBraceBudget(selected.userData.frame.height,selected.userData.frame.braceSpacingMm??0);}catch(e){toast(e.message,true);return;}
-    const data=frameData(selected);data.id=uid();data.name=`Frame ${String(frameCounter++).padStart(2,'0')}`;
+    const data=frameData(selected);data.id=uid();data.name=`${data.type==='led'?'LED Screen':data.type==='hollow'?'Hollow':'Frame'} ${String(frameCounter++).padStart(2,'0')}`;
     // A small depth offset makes duplicates individually selectable, without arranging a pattern.
     const offset=data.position[2]+.15<=LIMIT_POSITION ? .15 : -.15;data.position[2]=round(data.position[2]+offset);
-    const group=buildFrame(data);renderList();select(group);pushHistory();toast(`Frame diduplikat dengan offset Z ${offset>0?'+':'−'}0,15 m.`);
+    const group=buildFrame(data);renderList();select(group);pushHistory();toast(`Objek diduplikat dengan offset Z ${offset>0?'+':'−'}0,15 m.`);
   }
-  function removeSelected() {if(!selected)return;const id=selected.userData.frame.id;const group=selected;select(null);disposeFrame(group);objects.delete(id);renderList();pushHistory();toast('Frame dihapus. Ctrl+Z untuk mengembalikan.');}
+  function removeSelected() {if(!selected)return;const id=selected.userData.frame.id;const group=selected;select(null);disposeFrame(group);objects.delete(id);renderList();pushHistory();toast('Objek dihapus. Ctrl+Z untuk mengembalikan.');}
   function applySelectedChange(callback) {
     if(!selected)return;
     try{callback();syncSelected();syncFields();pushHistory();dirty=true;}catch(e){toast(e.message,true);const active=document.activeElement;active?.blur();syncFields();}
@@ -349,31 +386,56 @@ function main() {
   canvas.addEventListener('pointerdown',e=>{if(e.button===0&&!hitGizmo(e)&&!hitFrame(e))backgroundPress=[e.clientX,e.clientY];},false);
   canvas.addEventListener('pointerup',e=>{if(backgroundPress&&Math.hypot(e.clientX-backgroundPress[0],e.clientY-backgroundPress[1])<3&&!gizmoGesture)select(null);backgroundPress=null;},false);
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
-  const palette=$('frame-palette');let paletteDrag=false;
-  palette.addEventListener('dragstart',event=>{
-    try{dimension(inputNumber($('add-width'))/1000);const height=dimension(inputNumber($('add-height'))/1000);ensureBraceBudget(height,inputSpacing($('add-brace-spacing')));}catch(e){event.preventDefault();toast(e.message,true);return;}
-    paletteDrag=true;event.dataTransfer.setData('application/x-led-frame','new-frame');event.dataTransfer.effectAllowed='copy';$('drop-overlay').hidden=false;
-  });
-  palette.addEventListener('dragend',()=>{paletteDrag=false;$('drop-overlay').hidden=true;});
+  let paletteDrag=null;
+  for(const [id,type] of [['frame-palette','frame'],['led-palette','led']]){
+    const palette=$(id);
+    palette.addEventListener('dragstart',event=>{
+      try{const data=readNewObject(type);ensureBraceBudget(data.height,data.braceSpacingMm);}catch(e){event.preventDefault();toast(e.message,true);return;}
+      paletteDrag=type;event.dataTransfer.setData('application/x-led-frame',type);event.dataTransfer.effectAllowed='copy';$('drop-overlay').querySelector('strong').textContent=type==='led'?'Lepas untuk menambah LED Screen':'Lepas untuk menambah frame / hollow';$('drop-overlay').hidden=false;
+    });
+    palette.addEventListener('dragend',()=>{paletteDrag=null;$('drop-overlay').hidden=true;});
+  }
   viewport.addEventListener('dragover',e=>{if(paletteDrag){e.preventDefault();e.dataTransfer.dropEffect='copy';}});
   viewport.addEventListener('drop',event=>{
-    event.preventDefault();$('drop-overlay').hidden=true;if(!paletteDrag)return;paletteDrag=false;
+    event.preventDefault();$('drop-overlay').hidden=true;if(!paletteDrag)return;const type=paletteDrag;paletteDrag=null;
     setRay(event.clientX,event.clientY);const plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),point=raycaster.ray.intersectPlane(plane,new THREE.Vector3());
     if(!point||Math.abs(raycaster.ray.direction.y)<.025){toast('Penempatan di lantai memerlukan tampilan Iso atau Top. Pilih salah satu, lalu seret kembali.',true);return;}
     let {x,z}=point;if(settings.snap){x=snapValue(x,settings.positionStep);z=snapValue(z,settings.positionStep);}
     if(Math.abs(x)>LIMIT_POSITION||Math.abs(z)>LIMIT_POSITION){toast('Titik penempatan di luar batas ±500 meter.',true);return;}
-    addFrame([x,inputNumber($('add-height'))/2000,z]);
+    try{addFrame([x,readNewObject(type).height/2,z],type);}catch(e){toast(e.message,true);}
   });
   $('add-form').addEventListener('submit',e=>{e.preventDefault();addFrame();});
+  $('add-led-form').addEventListener('submit',e=>{e.preventDefault();addFrame(null,'led');});
+  $$('[data-object-type]').forEach(b=>b.addEventListener('click',()=>{paletteType=b.dataset.objectType;updatePalette();}));
+  $$('[data-frame-shape]').forEach(b=>b.addEventListener('click',()=>{
+    frameShape=b.dataset.frameShape;
+    if(frameShape==='square')$('add-height').value=$('add-width').value;
+    if(frameShape==='rectangle'&&$('add-width').value===$('add-height').value)$('add-height').value=String(inputNumber($('add-width'))===50000?25000:Math.min(50000,inputNumber($('add-width'))*2));
+    updatePalette();updateBraceSummary('add');
+  }));
+  for(const tablist of $$('.object-tabs,.shape-tabs'))tablist.addEventListener('keydown',e=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();
+    const tabs=[...tablist.querySelectorAll('[role="tab"]')],i=tabs.indexOf(document.activeElement);
+    const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[next].focus();tabs[next].click();
+  });
+  $('led-size').addEventListener('change',()=>{if($('led-size').value!=='custom'){const [w,h]=$('led-size').value.split('x').map(Number);restoreLedTemplate({width:w/1000,height:h/1000});}else $('add-led-width').focus();markEdited();});
+  ['add-led-width','add-led-height'].forEach(id=>$(id).addEventListener('input',()=>{$('led-size').value=ledPreset(inputNumber($('add-led-width'))/1000,inputNumber($('add-led-height'))/1000);markEdited();}));
+  $('selected-led-size').addEventListener('change',()=>{
+    if($('selected-led-size').value==='custom'){$('frame-width').focus();return;}
+    applySelectedChange(()=>{if(selected.userData.frame.type!=='led')return;const [w,h]=$('selected-led-size').value.split('x').map(n=>Number(n)/1000);resizeFrame(selected,w,h,0);});
+  });
   $('frame-name').addEventListener('change',()=>applySelectedChange(()=>{selected.userData.frame.name=$('frame-name').value.trim()||'Frame';$('frame-name').value=selected.userData.frame.name;$('status-text').textContent=selected.userData.frame.name;}));
   for(const field of ['width','height'])$(`frame-${field}`).addEventListener('change',()=>applySelectedChange(()=>{
     const f=selected.userData.frame;const value=dimension(inputNumber($(`frame-${field}`))/1000,field==='width'?'Lebar':'Tinggi');
     const w=field==='width'?value:f.width,h=field==='height'?value:f.height;ensureBraceBudget(h,f.braceSpacingMm??0,selected);resizeFrame(selected,w,h);
   }));
   $('frame-brace-spacing').addEventListener('change',()=>applySelectedChange(()=>{
-    const f=selected.userData.frame,spacingMm=inputSpacing($('frame-brace-spacing'));ensureBraceBudget(f.height,spacingMm,selected);resizeFrame(selected,f.width,f.height,spacingMm);
+    const f=selected.userData.frame;if(f.type!=='frame')return;const spacingMm=inputSpacing($('frame-brace-spacing'));ensureBraceBudget(f.height,spacingMm,selected);resizeFrame(selected,f.width,f.height,spacingMm);
   }));
-  ['add-width','add-height','add-brace-spacing'].forEach(id=>$(id).addEventListener('input',()=>{updateBraceSummary('add');if(savedFrames)markEdited();}));
+  ['add-width','add-height','add-brace-spacing'].forEach(id=>$(id).addEventListener('input',()=>{
+    if(frameShape==='square'&&id!=='add-brace-spacing')$(id==='add-width'?'add-height':'add-width').value=$(id).value;
+    updateBraceSummary('add');if(savedFrames)markEdited();
+  }));
   for(const axis of ['x','y','z']){
     $(`position-${axis}`).addEventListener('change',()=>applySelectedChange(()=>{selected.position[axis]=numeric(inputNumber($(`position-${axis}`)),-LIMIT_POSITION,LIMIT_POSITION,'Posisi (meter)');}));
     $(`rotation-${axis}`).addEventListener('change',()=>applySelectedChange(()=>{selected.rotation[axis]=THREE.MathUtils.degToRad(normalizeDegrees(numeric(inputNumber($(`rotation-${axis}`)),-36000,36000,'Rotasi (derajat)')));}));
@@ -390,15 +452,19 @@ function main() {
   $('undo').addEventListener('click',()=>restoreHistory(-1));$('redo').addEventListener('click',()=>restoreHistory(1));
   $('save-project').addEventListener('click',()=>{
     try{
-      if(drag||transform.dragging)throw new Error('Selesaikan geseran frame sebelum menyimpan.');
+      if(drag||transform.dragging)throw new Error('Selesaikan geseran objek sebelum menyimpan.');
       // Read the editor explicitly: saving must not depend on a blur/change event.
-      const pendingSpacing=selected?inputSpacing($('frame-brace-spacing')):null;
-      const template=readFrameTemplate();document.activeElement?.blur();
-      if(selected&&pendingSpacing!==selected.userData.frame.braceSpacingMm){
-        const f=selected.userData.frame;ensureBraceBudget(f.height,pendingSpacing,selected);resizeFrame(selected,f.width,f.height,pendingSpacing);syncSelected();syncFields();pushHistory();
+      const template=readFrameTemplate(),ledTemplate=readLedTemplate();
+      if(selected){
+        const f=selected.userData.frame,w=f.type==='hollow'?HOLLOW:dimension(inputNumber($('frame-width'))/1000,'Lebar'),h=dimension(inputNumber($('frame-height'))/1000,'Tinggi');
+        const spacing=f.type==='frame'?inputSpacing($('frame-brace-spacing')):0;ensureBraceBudget(h,spacing,selected);
+        const position=['x','y','z'].map(axis=>numeric(inputNumber($(`position-${axis}`)),-LIMIT_POSITION,LIMIT_POSITION,'Posisi'));
+        const rotation=['x','y','z'].map(axis=>THREE.MathUtils.degToRad(normalizeDegrees(numeric(inputNumber($(`rotation-${axis}`)),-36000,36000,'Rotasi'))));
+        f.name=$('frame-name').value.trim()||'Objek';resizeFrame(selected,w,h,spacing);selected.position.fromArray(position);selected.rotation.set(...rotation,'XYZ');syncSelected();pushHistory();
       }
-      const project=makeProject(allFrames(),settings,cameraData(),template);const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-      download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),`led-frame-project-v1.2-${date}.json`);savedFrames=contentDigest();markEdited();toast('JSON tersimpan, termasuk jarak hollow dan pengaturan Buat frame.');
+      document.activeElement?.blur();syncFields();
+      const project=makeProject(allFrames(),settings,cameraData(),template,ledTemplate,{type:paletteType,shape:frameShape});const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+      download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),`led-frame-project-v1.3-${date}.json`);savedFrames=contentDigest();markEdited();toast('JSON tersimpan: frame, hollow, LED Screen, dan pengaturan ukuran.');
     }catch(e){toast(e.message||'Gagal menyimpan proyek.',true);}
   });
   $('load-project').addEventListener('click',()=>$('project-file').click());
@@ -409,12 +475,12 @@ function main() {
       let parsed;try{parsed=JSON.parse(await file.text());}catch{throw new Error('File bukan JSON yang valid.');}
       const project=validateProject(parsed);
       if(projectDirty&&!await confirmAction('Muat proyek?', 'Proyek saat ini memiliki perubahan yang belum disimpan. Memuat file akan menggantinya. Simpan JSON terlebih dahulu bila masih diperlukan.'))return;
-      replaceFrames(project.frames,project.frames[0]?.id);restoreFrameTemplate(project.frameTemplate);settings=project.settings;applySettings();restoreCamera(project.camera);frameCounter=project.frames.length+1;
-      histories=[];historyIndex=-1;savedFrames=contentDigest();pushHistory();toast(`${objects.size} frame berhasil dimuat.`);
+      replaceFrames(project.frames,project.frames[0]?.id);restoreFrameTemplate(project.frameTemplate);restoreLedTemplate(project.ledTemplate);paletteType=project.palette.type;frameShape=project.palette.shape;updatePalette();settings=project.settings;applySettings();restoreCamera(project.camera);frameCounter=project.frames.length+1;
+      histories=[];historyIndex=-1;savedFrames=contentDigest();pushHistory();toast(`${objects.size} objek berhasil dimuat.`);
     } catch(e){toast(e.message||'Gagal membaca proyek.',true);}
   });
   $('new-project').addEventListener('click',async()=>{
-    if(objects.size&&!await confirmAction('Buat proyek kosong?', 'Semua frame akan dikeluarkan dari area kerja. Anda dapat mengembalikannya dengan Undo. Simpan JSON terlebih dahulu jika diperlukan.'))return;
+    if(objects.size&&!await confirmAction('Buat proyek kosong?', 'Semua objek akan dikeluarkan dari area kerja. Anda dapat mengembalikannya dengan Undo. Simpan JSON terlebih dahulu jika diperlukan.'))return;
     replaceFrames([]);pushHistory();frameCounter=1;setView('iso');toast('Proyek kosong siap.');
   });
   $('export-png').addEventListener('click',async()=>{
@@ -461,7 +527,7 @@ function main() {
     const changed=lastStageWidth>0&&(width!==lastStageWidth||height!==lastStageHeight);
     lastStageWidth=width;lastStageHeight=height;resize();if(changed)fitAll(true);
   }).observe(stage);window.addEventListener('resize',resize);
-  const first=buildFrame({id:uid(),name:'Frame 01',width:1,height:2,braceSpacingMm:0,position:[0,1,0],rotation:[0,0,0]});frameCounter=2;renderList();select(first);updateBraceSummary('add');applySettings();setView('iso');savedFrames=contentDigest();pushHistory();$('save-status').textContent='Contoh 1000 × 2000 mm · siap disusun';$('loading').hidden=true;
+  const first=buildFrame({id:uid(),name:'Frame 01',type:'frame',shape:'rectangle',width:1,height:2,braceSpacingMm:0,position:[0,1,0],rotation:[0,0,0]});frameCounter=2;renderList();select(first);updatePalette();updateBraceSummary('add');applySettings();setView('iso');savedFrames=contentDigest();pushHistory();$('save-status').textContent='Contoh 1000 × 2000 mm · siap disusun';$('loading').hidden=true;
   function render() {requestAnimationFrame(render);orbit.update();if(dirty){renderer.render(scene,camera);positionDimensionLabels();dirty=false;}}
   render();
 }

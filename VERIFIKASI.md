@@ -1,3 +1,10 @@
+# Pembaruan 1.3 — Bentuk frame dan LED Screen
+
+- 23 pemeriksaan otomatis lolos. Tambahan pemeriksaan mencakup frame kotak/persegi panjang, geometri hollow lurus 40 × 40 mm, preset dan ukuran LED custom, bezel 2 mm, batas dua kabinet berdampingan, rekap material terpisah, data tidak valid, dan simpan/muat proyek campuran.
+- JSON versi lama tanpa jenis objek atau pengaturan LED tetap dimuat sebagai frame; template LED mendapat nilai awal 1000 × 500 mm.
+- Build memperbarui `app.bundle.js` dan HTML mandiri offline. Sintaks JavaScript dan struktur HTML diperiksa secara otomatis.
+- Verifikasi visual dan interaksi browser untuk versi 1.3 belum dapat diselesaikan: alat Computer Use menghentikan akses karena URL jendela Chrome tidak dapat dipastikan. Catatan verifikasi browser di bagian versi sebelumnya hanya berlaku untuk versi tersebut.
+
 # Pembaruan 1.2 — Persistensi JSON dan rekap
 
 - File JSON hasil unduhan aktual diperiksa: objek menyimpan `braceSpacingMm: 500`, sedangkan form Buat frame menyimpan jarak 750 mm, lebar 2000 mm dan tinggi 3000 mm.

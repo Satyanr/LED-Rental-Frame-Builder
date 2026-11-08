@@ -1,6 +1,8 @@
 // Project format is deliberately independent of Three.js and the DOM.
 export const HOLLOW = 0.04;
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.3.0';
+export const LED_DEPTH = 0.08;
+export const LED_BEZEL = 0.002;
 export const MAX_FRAMES = 300;
 export const MAX_BRACES_PER_FRAME = 200;
 export const MAX_PROJECT_BRACES = 1500;
@@ -42,6 +44,20 @@ export function frameMembers(width,height,spacingMm=0) {
     ...braceOffsetsMm(height,spacingMm).map(mm=>({size:[width-HOLLOW*2,HOLLOW,HOLLOW],position:[0,-height/2+mm/1000,0]})),
   ];
 }
+export function ledMembers(width,height) {
+  dimension(width,'Lebar LED');dimension(height,'Tinggi LED');
+  // The cabinet body defines the exact outside size. A 2 mm rim surrounds
+  // the inset display on both sides, so adjoining cabinets remain distinct.
+  return [
+    {surface:'body',size:[width,height,LED_DEPTH],position:[0,0,0]},
+    ...[-1,1].map(side=>({surface:'screen',size:[width-2*LED_BEZEL,height-2*LED_BEZEL,.001],position:[0,0,side*(LED_DEPTH/2+.0005)]})),
+  ];
+}
+export function objectMembers(data) {
+  if(data.type==='led')return ledMembers(data.width,data.height);
+  if(data.type==='hollow'){dimension(data.height,'Panjang hollow');return [{size:[HOLLOW,data.height,HOLLOW],position:[0,0,0]}];}
+  return frameMembers(data.width,data.height,data.braceSpacingMm??0);
+}
 export function normalizeDegrees(value) { return ((value + 180) % 360 + 360) % 360 - 180; }
 export function snapValue(value, step) { return Math.round(value / step) * step; }
 export function validateFrame(frame, index=0) {
@@ -51,12 +67,20 @@ export function validateFrame(frame, index=0) {
     return value.map(n => numeric(n, -bound, bound, label));
   };
   const name = typeof frame.name === 'string' ? frame.name.trim().slice(0,60) : '';
-  const spacingMm=frame.braceSpacingMm===undefined?0:braceSpacing(frame.braceSpacingMm);
+  const type=frame.type??'frame';
+  if(!['frame','hollow','led'].includes(type))throw new Error('Jenis objek tidak didukung.');
+  const shape=frame.shape??(frame.width===frame.height?'square':'rectangle');
+  if(type==='frame'&&!['square','rectangle'].includes(shape))throw new Error('Bentuk frame tidak didukung.');
+  if(type==='frame'&&shape==='square'&&frame.width!==frame.height)throw new Error('Frame kotak harus memiliki lebar dan tinggi sama.');
+  if(type==='hollow'&&frame.width!==HOLLOW)throw new Error('Lebar hollow lurus harus 40 mm.');
+  if(type!=='frame'&&frame.braceSpacingMm!==undefined&&frame.braceSpacingMm!==0)throw new Error('Hollow tengah hanya tersedia untuk frame.');
+  const spacingMm=type==='frame'?braceSpacing(frame.braceSpacingMm??0):0;
   braceOffsetsMm(frame.height,spacingMm);
   return {
     id: typeof frame.id === 'string' && frame.id.length > 0 && frame.id.length < 100 ? frame.id : uid(),
-    name: name || `Frame ${String(index+1).padStart(2,'0')}`,
-    width:dimension(frame.width, 'Lebar'), height:dimension(frame.height, 'Tinggi'),
+    name: name || `${type==='led'?'LED Screen':type==='hollow'?'Hollow':'Frame'} ${String(index+1).padStart(2,'0')}`,
+    type,...(type==='frame'?{shape}:{}),
+    width:type==='hollow'?HOLLOW:dimension(frame.width, 'Lebar'), height:dimension(frame.height, 'Tinggi'),
     braceSpacingMm:spacingMm,
     position:triplet(frame.position, LIMIT_POSITION, 'Posisi'),
     rotation:triplet(frame.rotation, 36000, 'Rotasi').map(normalizeDegrees),
@@ -68,6 +92,7 @@ export function validateFrameTemplate(value) {
   braceOffsetsMm(template.height,template.braceSpacingMm);return template;
 }
 export function frameSummary(frames) {
+  frames=frames.filter(f=>!f.type||f.type==='frame');
   const groups=new Map();
   for(const f of frames){
     // Rotating a rectangular frame does not create a different physical size.
@@ -78,10 +103,24 @@ export function frameSummary(frames) {
   }
   return {total:frames.length,bySize:[...groups.values()].sort((a,b)=>b.width-a.width||b.height-a.height)};
 }
+export function objectSummary(objects) {
+  const groups=new Map();
+  for(const f of objects){
+    const type=f.type??'frame',sides=type==='hollow'?[HOLLOW,f.height]:[f.width,f.height].sort((a,b)=>b-a);
+    const key=[type,...sides.map(n=>Number(n.toFixed(6)))].join(':');
+    if(!groups.has(key))groups.set(key,{type,width:sides[0],height:sides[1],quantity:0});
+    groups.get(key).quantity++;
+  }
+  return {total:objects.length,bySize:[...groups.values()]};
+}
+export function validateLedTemplate(value={width:1,height:.5}) {
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Ukuran LED Screen tidak valid.');
+  return {width:dimension(value.width,'Lebar LED'),height:dimension(value.height,'Tinggi LED')};
+}
 export function validateProject(data) {
   if (!data || typeof data !== 'object' || data.app !== 'led-rental-frame-builder' || data.version !== 1 || data.units !== 'meters') throw new Error('Format proyek tidak didukung. Pilih JSON dari Contruction Builder (LED Rental) versi 1.');
   if (data.hollow?.width !== HOLLOW || data.hollow?.height !== HOLLOW) throw new Error('Proyek harus memakai profil hollow tetap 40 × 40 mm.');
-  if (!Array.isArray(data.frames) || data.frames.length > MAX_FRAMES) throw new Error(`Proyek maksimal ${MAX_FRAMES} frame.`);
+  if (!Array.isArray(data.frames) || data.frames.length > MAX_FRAMES) throw new Error(`Proyek maksimal ${MAX_FRAMES} objek.`);
   const frames = data.frames.map(validateFrame);
   if(frames.reduce((sum,f)=>sum+braceOffsetsMm(f.height,f.braceSpacingMm).length,0)>MAX_PROJECT_BRACES)throw new Error(`Maksimal ${MAX_PROJECT_BRACES} hollow tengah dalam satu proyek.`);
   if (new Set(frames.map(f => f.id)).size !== frames.length) throw new Error('ID frame di proyek tidak boleh duplikat.');
@@ -100,10 +139,13 @@ export function validateProject(data) {
     const vector = v => Array.isArray(v) && v.length===3 && v.every(n => typeof n==='number' && Number.isFinite(n) && Math.abs(n)<=10000);
     if (vector(c.position) && vector(c.target) && vector(c.up) && Math.hypot(...c.up)>0.5 && Math.hypot(...c.up)<1.5 && Math.hypot(...c.position.map((v,i)=>v-c.target[i]))>0.01 && typeof c.span==='number' && c.span>=0.1 && c.span<=5000) camera = {view:c.view, type:c.type, position:[...c.position], target:[...c.target], up:[...c.up], span:c.span};
   }
-  const frameTemplate=validateFrameTemplate(data.frameTemplate??frames[0]??{width:1,height:2,braceSpacingMm:0});
-  return {frames, settings, camera, frameTemplate};
+  const frameTemplate=validateFrameTemplate(data.frameTemplate??frames.find(f=>f.type==='frame')??{width:1,height:2,braceSpacingMm:0});
+  const ledTemplate=validateLedTemplate(data.ledTemplate);
+  const palette={type:['frame','led'].includes(data.palette?.type)?data.palette.type:'frame',shape:['square','rectangle','hollow'].includes(data.palette?.shape)?data.palette.shape:'rectangle'};
+  if(palette.shape==='square'&&frameTemplate.width!==frameTemplate.height)palette.shape='rectangle';
+  return {frames, settings, camera, frameTemplate, ledTemplate, palette};
 }
-export function makeProject(frames, settings, camera, template=frames[0]??{width:1,height:2,braceSpacingMm:0}) {
+export function makeProject(frames, settings, camera, template=frames.find(f=>!f.type||f.type==='frame')??{width:1,height:2,braceSpacingMm:0}, ledTemplate, palette={type:'frame',shape:'rectangle'}) {
   const savedFrames=frames.map(validateFrame);
-  return {app:'led-rental-frame-builder', appVersion:APP_VERSION, version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames:savedFrames, frameTemplate:validateFrameTemplate(template), summary:frameSummary(savedFrames), settings:{...settings}, camera};
+  return {app:'led-rental-frame-builder', appVersion:APP_VERSION, version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames:savedFrames, frameTemplate:validateFrameTemplate(template), ledTemplate:validateLedTemplate(ledTemplate),palette:{...palette}, summary:frameSummary(savedFrames), objectsSummary:objectSummary(savedFrames), settings:{...settings}, camera};
 }

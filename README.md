@@ -1,8 +1,8 @@
 # Contruction Builder (LED Rental)
 
-Versi **1.2.0** — simpan/muat jarak hollow tengah dan rekap frame terpakai.
+Versi **1.3.0** — tab bentuk frame, hollow lurus, dan kabinet LED Screen dengan ukuran custom serta bezel tipis.
 
-Editor 3D lokal untuk menyusun rangka LED rental secara manual. Dibuat dengan HTML, CSS, JavaScript dan Three.js r170 yang sudah disertakan dalam paket. **Tidak memerlukan internet, akun, instalasi, atau proses build untuk dipakai.**
+Editor 3D lokal untuk menyusun rangka dan kabinet LED rental secara manual. Dibuat dengan HTML, CSS, JavaScript dan Three.js r170 yang sudah disertakan dalam paket. **Tidak memerlukan internet, akun, instalasi, atau proses build untuk dipakai.**
 
 ## Menjalankan
 
@@ -26,6 +26,18 @@ Tidak perlu menjalankan server. Jika ingin menggunakan server lokal, dari folder
 - **Duplikat** menyalin ukuran dan rotasi dengan offset Z sebesar +0,15 m agar dapat dibedakan. Jika melewati batas posisi, offset menjadi −0,15 m. Duplikasi tidak menyusun pola.
 - **Hapus**, **Undo**, dan **Redo** tersedia. Riwayat maksimal 80 keadaan mencakup objek, ukuran, posisi, dan rotasi. Mengimpor JSON memulai riwayat baru.
 
+## Pilihan bentuk frame dan LED Screen
+
+- Tab **Frame** menyediakan pilihan bentuk **Kotak**, **Persegi panjang**, dan **Hollow lurus**. Pada Kotak, lebar dan tinggi form saling mengikuti. Persegi panjang memakai lebar dan tinggi terpisah; isi jarak hollow tengah 0 jika hanya ingin keliling terbuka tanpa batang tengah.
+- **Hollow lurus** adalah satu batang dengan penampang tetap 40 × 40 mm. Isi panjangnya dalam mm; arah awal mengikuti Y lokal. Putar X/Z untuk membuat batang horizontal. Hollow lurus tidak memiliki batang tengah.
+- Tab **LED Screen** membuat **satu objek untuk satu kabinet** videotron. Pilih preset **1000 × 500 mm**, **500 × 500 mm**, atau **Custom**. Lebar dan tinggi selalu dapat diketik langsung; ukuran lain otomatis ditandai Custom.
+- Ukuran kabinet yang sudah ditambahkan bisa diubah melalui **Properti LED Screen**, memakai preset atau kolom lebar/tinggi. Badan kabinet dimodelkan setebal 80 mm. Bezel tetap **2 mm pada tiap sisi** mengelilingi permukaan LED di depan dan belakang; dua kabinet berdampingan memiliki total batas 4 mm, tanpa mengubah ukuran luar lebar/tinggi kabinet.
+- Frame, hollow lurus, dan kabinet LED semuanya mendukung pilihan dari daftar atau viewport, drag/drop kartu, geser, putar, letakkan di lantai, duplikat, hapus, Undo/Redo, dan ekspor PNG.
+- Posisi awal objek baru tetap di titik asal dengan sisi bawah di lantai. Geser kabinet secara manual untuk menyusun videotron; tidak ada pembagian kabinet atau penyusunan otomatis.
+- Tab aktif, pilihan bentuk, ukuran kabinet pada form, dan seluruh jenis objek ikut disimpan dalam JSON v1.3. JSON dari versi sebelumnya tetap bisa dimuat; objek lama dibaca sebagai frame.
+- Batas proyek **300 objek** berlaku untuk gabungan frame, hollow lurus, dan LED Screen. Batas ukuran frame/kabinet serta panjang hollow tetap 100–50.000 mm.
+- Untuk mencoba susunan, klik **Muat** dan pilih `contoh-frame-dan-led-screen.json`: berisi frame kotak dengan delapan kabinet 1000 × 500 mm yang saling berdampingan, frame persegi panjang, hollow lurus, dan satu kabinet custom 1280 × 720 mm.
+
 ## Kamera dan grid
 
 - Seret area kosong untuk orbit; klik kanan dan seret untuk pan; roda mouse untuk zoom. Pada layar sentuh, gunakan satu jari di area kosong untuk orbit dan dua jari untuk pan/zoom.
@@ -39,23 +51,23 @@ Tidak perlu menjalankan server. Jika ingin menggunakan server lokal, dari folder
 
 - Profil permanen **40 × 40 mm = 0,04 × 0,04 m**. Tidak ada pengaturan ukuran hollow atau pola susunan otomatis.
 - Frame baru berada pada bidang lokal XY; ketebalannya searah Z lokal. Objek terdiri dari empat batang keliling dan batang horizontal opsional, tanpa panel solid. Seluruh batang tetap memakai profil 40 × 40 mm dan ikut bergerak/berputar bersama frame. Tampilan batang merepresentasikan selubung luar hollow; ketebalan dinding dalam tidak dimodelkan.
-- Ukuran luar frame: **100–50.000 mm** pada setiap sisi. Posisi, grid, label ukuran 3D, dan data lebar/tinggi di JSON tetap menggunakan meter; kolom jarak hollow JSON `braceSpacingMm` memakai mm. JSON lama tanpa kolom ini tetap dapat dimuat dan berarti tanpa batang tengah. Jarak hollow tengah: **0 atau 100–50.000 mm**; maksimal **200 batang tengah per frame** dan **1500 per proyek** untuk menjaga responsivitas. Posisi titik tengah: **−500 sampai +500 m** pada setiap sumbu. Maksimal **300 frame** per proyek.
+- Ukuran luar frame: **100–50.000 mm** pada setiap sisi. Posisi, grid, label ukuran 3D, dan data lebar/tinggi di JSON tetap menggunakan meter; kolom jarak hollow JSON `braceSpacingMm` memakai mm. JSON lama tanpa kolom ini tetap dapat dimuat dan berarti tanpa batang tengah. Jarak hollow tengah: **0 atau 100–50.000 mm**; maksimal **200 batang tengah per frame** dan **1500 per proyek** untuk menjaga responsivitas. Posisi titik tengah: **−500 sampai +500 m** pada setiap sumbu. Maksimal **300 objek** per proyek.
 - **Snap langkah** opsional untuk gerakan/gizmo, dengan langkah posisi 0,01 / 0,05 / 0,1 / 0,25 / 0,5 / 1 m dan rotasi 5 / 15 / 45 / 90 derajat.
 - Snap adalah pembulatan langkah, bukan penyambungan otomatis antarframe. Input numerik tetap dapat mengisi nilai presisi saat snap aktif. Aplikasi tidak memeriksa tabrakan atau sambungan.
 
 ## Simpan, muat, dan screenshot
 
-- **Simpan JSON** membaca perubahan jarak hollow yang sedang diketik sebelum membuat file. Nilai pada form **Buat frame** (lebar, tinggi, jarak) ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.2 pada nama file dan `appVersion` di dalam JSON.
+- **Simpan JSON** membaca perubahan jarak hollow yang sedang diketik sebelum membuat file. Nilai pada form **Buat frame** (lebar, tinggi, jarak) ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.3 pada nama file dan `appVersion` di dalam JSON.
 - **Simpan JSON** mengunduh proyek: seluruh frame, nama, dimensi, jarak hollow tengah, posisi, rotasi, preferensi snap/grid, dan keadaan kamera. Simpan sebelum menutup halaman; tidak ada penyimpanan otomatis.
 - **Muat** membaca file JSON lokal dari aplikasi ini. Format, nilai angka, batas objek, dan profil hollow divalidasi sebelum mengganti proyek. File rusak ditolak tanpa mengubah objek saat ini. Ukuran file maksimal 5 MB.
 - **Export PNG** mengunduh tampilan 3D saat ini, termasuk grid dan label dimensi terpilih jika diaktifkan. Gizmo dan panel editor tidak ikut diekspor. PNG mengikuti resolusi viewport dengan rasio piksel perangkat maksimal 2.
 - Browser menyimpan file di folder unduhan atau lokasi yang Anda pilih. Izinkan unduhan jika browser menanyakannya.
 
-## Rekap frame terpakai
+## Rekap material terpakai
 
-Panel **Frame terpakai** terletak di kanan, di bawah area properti, dan tetap terlihat saat properti digulir. Rekap menghitung seluruh objek dalam proyek berdasarkan ukuran luar, misalnya **2 × 2 m — 20 pcs** dan **2 × 1 m — 10 pcs**, beserta totalnya.
+Panel **Material terpakai** terletak di kanan, di bawah area properti, dan tetap terlihat saat properti digulir. Rekap menghitung frame, hollow lurus, dan LED Screen secara terpisah berdasarkan jenis dan ukuran dalam mm, beserta totalnya. Hollow lurus dikelompokkan berdasarkan panjang.
 
-Jumlah diperbarui setelah Add Frame, duplikat, hapus, perubahan ukuran, Undo/Redo, proyek baru, dan muat JSON. Rotasi tidak mengubah kelompok ukuran: 1 × 2 m dan 2 × 1 m digabung. Perbedaan jarak hollow tidak memisahkan kelompok ukuran. Ringkasan turut dimasukkan ke JSON sebagai `summary`; saat memuat, angka di panel dihitung kembali dari objek aktual.
+Jumlah diperbarui setelah Add Frame, duplikat, hapus, perubahan ukuran, Undo/Redo, proyek baru, dan muat JSON. Rotasi tidak mengubah kelompok ukuran: 1 × 2 m dan 2 × 1 m digabung. Perbedaan jarak hollow tidak memisahkan kelompok ukuran. Ringkasan frame tetap disimpan sebagai `summary`, sedangkan gabungan material disimpan sebagai `objectsSummary`; saat memuat, angka di panel dihitung kembali dari objek aktual.
 
 Format JSON tetap kompatibel dengan versi sebelumnya. Jika JSON lama tidak memiliki `frameTemplate`, form Buat frame diisi dari frame pertama. Bila sebuah file lama sama sekali tidak memiliki `braceSpacingMm`, jarak yang hilang tidak dapat ditebak; isi kembali pada panel properti lalu simpan menggunakan versi terbaru.
 

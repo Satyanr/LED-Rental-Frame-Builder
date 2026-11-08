@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {HOLLOW, MAX_FRAMES, DEFAULT_SETTINGS, dimension, braceSpacing, braceOffsetsMm, frameMembers, frameSummary, normalizeDegrees, snapValue, validateProject, makeProject} from '../src/project.js';
+import {HOLLOW, LED_DEPTH, LED_BEZEL, MAX_FRAMES, DEFAULT_SETTINGS, dimension, braceSpacing, braceOffsetsMm, frameMembers, ledMembers, objectMembers, objectSummary, frameSummary, normalizeDegrees, snapValue, validateProject, makeProject} from '../src/project.js';
 
 const frame = () => ({id:'frame-01',name:'Frame 01',width:1,height:2,braceSpacingMm:0,position:[0,1,0],rotation:[0,90,0]});
 const project = () => makeProject([frame()],DEFAULT_SETTINGS,null);
@@ -92,4 +92,75 @@ test('counts respond to duplicate, deletion, resize and an empty scene',()=>{
   frames[1].width=2;assert.equal(frameSummary(frames).bySize.length,2);
   frames.pop();assert.equal(frameSummary(frames).total,1);
   assert.deepEqual(frameSummary([]),{total:0,bySize:[]});
+});
+
+test('old v1.2 files without object types open as frames with inferred shapes',()=>{
+  const legacy=project();delete legacy.frames[0].type;delete legacy.frames[0].shape;
+  delete legacy.ledTemplate;delete legacy.palette;
+  const p=validateProject(legacy);
+  assert.equal(p.frames[0].type,'frame');assert.equal(p.frames[0].shape,'rectangle');
+  assert.deepEqual(p.ledTemplate,{width:1,height:.5});assert.deepEqual(p.palette,{type:'frame',shape:'rectangle'});
+});
+
+test('square and rectangular frames preserve their shapes without changing perimeter geometry',()=>{
+  const p=project();p.frames=[{...frame(),type:'frame',shape:'square',width:2,height:2},{...frame(),id:'rectangle',type:'frame',shape:'rectangle',width:3,height:1}];
+  const parsed=validateProject(JSON.parse(JSON.stringify(p)));
+  assert.deepEqual(parsed.frames.map(f=>f.shape),['square','rectangle']);
+  assert.equal(objectMembers(parsed.frames[0]).length,4);assert.equal(objectMembers(parsed.frames[1]).length,4);
+  p.frames[0].height=1;assert.throws(()=>validateProject(p),/kotak/);
+});
+
+test('hollow straight member keeps a fixed 40 x 40 section and custom length',()=>{
+  const hollow={...frame(),type:'hollow',width:HOLLOW,height:3.25};
+  assert.deepEqual(objectMembers(hollow),[{size:[.04,3.25,.04],position:[0,0,0]}]);
+  const parsed=validateProject(makeProject([hollow],DEFAULT_SETTINGS,null));
+  assert.equal(parsed.frames[0].width,HOLLOW);assert.equal(parsed.frames[0].height,3.25);
+  assert.deepEqual(parsed.frameTemplate,{width:1,height:2,braceSpacingMm:0});
+  for(const change of [{width:.05},{braceSpacingMm:1000},{height:.09}])assert.throws(()=>makeProject([{...hollow,...change}],DEFAULT_SETTINGS,null));
+});
+
+test('LED presets and custom sizes have exact outside bounds and 2 mm bezels',()=>{
+  for(const [width,height] of [[1,.5],[.5,.5],[1.28,.72],[.1,.1],[50,50]]){
+    const [body,...screens]=ledMembers(width,height);
+    assert.deepEqual(body.size,[width,height,LED_DEPTH]);assert.equal(screens.length,2);
+    for(const screen of screens){
+      assert.ok(Math.abs((width-screen.size[0])/2-LED_BEZEL)<1e-12);
+      assert.ok(Math.abs((height-screen.size[1])/2-LED_BEZEL)<1e-12);
+      assert.equal(Math.abs(screen.position[2]),LED_DEPTH/2+.0005);
+    }
+  }
+  assert.throws(()=>ledMembers(.05,.5));assert.throws(()=>ledMembers(1,NaN));
+});
+
+test('two adjacent LED cabinets each retain a bezel at their shared boundary',()=>{
+  const width=1,height=.5;
+  const screen=ledMembers(width,height)[1];
+  const firstRight=screen.size[0]/2,secondLeft=width-screen.size[0]/2;
+  assert.ok(Math.abs(secondLeft-firstRight-2*LED_BEZEL)<1e-12);
+});
+
+test('mixed objects round trip types, dimensions, transforms, custom LED template and palette',()=>{
+  const objects=[{...frame(),type:'frame',shape:'rectangle',braceSpacingMm:1000},{...frame(),id:'tube',type:'hollow',width:HOLLOW,height:2.5},{...frame(),id:'screen',type:'led',width:1.28,height:.72,position:[2,.36,.1],rotation:[0,45,0]}];
+  const source=makeProject(objects,DEFAULT_SETTINGS,null,{width:2,height:3,braceSpacingMm:750},{width:1.28,height:.72},{type:'led',shape:'hollow'});
+  const parsed=validateProject(JSON.parse(JSON.stringify(source)));
+  assert.deepEqual(parsed.frames,source.frames);assert.deepEqual(parsed.ledTemplate,{width:1.28,height:.72});
+  assert.deepEqual(parsed.palette,{type:'led',shape:'hollow'});assert.equal(source.summary.total,1);assert.equal(source.objectsSummary.total,3);
+});
+
+test('material summary separates equal-size frames and screens and counts hollow lengths',()=>{
+  const objects=[frame(),{...frame(),id:'led',type:'led'},{...frame(),id:'tube',type:'hollow',width:HOLLOW},{...frame(),id:'copy',type:'led',width:2,height:1}];
+  const summary=objectSummary(objects);
+  assert.equal(summary.total,4);assert.equal(summary.bySize.length,3);
+  assert.equal(summary.bySize.find(x=>x.type==='led').quantity,2);
+  assert.deepEqual(frameSummary(objects),frameSummary([frame()]));
+  assert.equal(objectSummary(objects.slice(0,-1)).bySize.find(x=>x.type==='led').quantity,1);
+});
+
+test('invalid object types, screen braces and LED templates are rejected before import',()=>{
+  for(const change of [{type:'unsupported'},{type:'led',braceSpacingMm:500},{type:'led',width:0},{type:'frame',shape:'triangle'}]){
+    const p=project();Object.assign(p.frames[0],change);assert.throws(()=>validateProject(p));
+  }
+  for(const value of [null,[],{width:0,height:.5},{width:1,height:'500'},{width:Infinity,height:.5}]){
+    const p=project();p.ledTemplate=value;assert.throws(()=>validateProject(p));
+  }
 });
