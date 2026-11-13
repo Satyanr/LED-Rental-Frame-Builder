@@ -1,6 +1,6 @@
 // Project format is deliberately independent of Three.js and the DOM.
 export const HOLLOW = 0.04;
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';
 export const LED_DEPTH = 0.08;
 export const LED_BEZEL = 0.002;
 export const MAX_FRAMES = 300;
@@ -129,6 +129,7 @@ export function validateFrame(frame, index=0) {
   if(!['frame','hollow','led','ballast'].includes(type))throw new Error('Jenis objek tidak didukung.');
   const ballast=type==='ballast'?validateBallastTemplate({...frame,kind:frame.ballastKind}):null;
   if(frame.locked!==undefined&&typeof frame.locked!=='boolean')throw new Error('Status kunci objek harus benar atau salah.');
+  if(frame.groupId!=null&&(typeof frame.groupId!=='string'||!frame.groupId.length||frame.groupId.length>=100))throw new Error('ID grup tidak valid.');
   if(frame.tie!=null&&!isJerrycan(frame))throw new Error('Tali pengikat hanya tersedia untuk jerigen air.');
   const shape=frame.shape??(frame.width===frame.height?'square':'rectangle');
   if(type==='frame'&&!['square','rectangle'].includes(shape))throw new Error('Bentuk frame tidak didukung.');
@@ -141,6 +142,7 @@ export function validateFrame(frame, index=0) {
     id: typeof frame.id === 'string' && frame.id.length > 0 && frame.id.length < 100 ? frame.id : uid(),
     name: name || `${objectLabel(frame)} ${String(index+1).padStart(2,'0')}`,
     type,locked:frame.locked??false,...(type==='frame'?{shape}:{}),
+    ...(frame.groupId!=null?{groupId:frame.groupId}:{}),
     ...(frame.tie!=null?{tie:validateTie(frame.tie)}:{}),
     ...(ballast?{ballastKind:ballast.kind,depth:ballast.depth}:{}),
     width:type==='hollow'?HOLLOW:dimension(frame.width, 'Lebar'), height:dimension(frame.height, 'Tinggi'),
@@ -212,4 +214,23 @@ export function validateProject(data) {
 export function makeProject(frames, settings, camera, template=frames.find(f=>!f.type||f.type==='frame')??{width:1,height:2,braceSpacingMm:0}, ledTemplate, palette={type:'frame',shape:'rectangle'}, ballastTemplate) {
   const savedFrames=validateConnections(frames.map(validateFrame));
   return {app:'led-rental-frame-builder', appVersion:APP_VERSION, version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames:savedFrames, frameTemplate:validateFrameTemplate(template), ledTemplate:validateLedTemplate(ledTemplate),ballastTemplate:validateBallastTemplate(ballastTemplate),palette:{...palette}, summary:frameSummary(savedFrames), objectsSummary:objectSummary(savedFrames), settings:{...settings}, camera};
+}
+
+export function cloneObjects(source,existing,offset=[0,0,.15]) {
+  if(!Array.isArray(source)||!source.length)throw new Error('Pilih objek untuk disalin terlebih dahulu.');
+  if(source.length+existing.length>MAX_FRAMES)throw new Error(`Proyek maksimal ${MAX_FRAMES} objek.`);
+  const ids=new Map(source.map(f=>[f.id,uid()])),groupCounts=new Map(),groups=new Map(),available=new Set(existing.map(f=>f.id));
+  for(const f of source)if(f.groupId)groupCounts.set(f.groupId,(groupCounts.get(f.groupId)??0)+1);
+  for(const [id,count] of groupCounts)if(count>1)groups.set(id,uid());
+  const copies=source.map(f=>{
+    const copy=validateFrame({...f,id:ids.get(f.id),name:`${f.name.slice(0,50)} salinan`,locked:false,groupId:groups.get(f.groupId),position:f.position.map((n,i)=>n+numeric(offset[i],-1000,1000,'Offset salinan'))});
+    if(copy.tie){
+      if(ids.has(copy.tie.targetId))copy.tie={...copy.tie,targetId:ids.get(copy.tie.targetId)};
+      else if(!available.has(copy.tie.targetId))delete copy.tie;
+    }
+    return copy;
+  });
+  const all=[...existing,...copies];validateConnections(all);
+  if(all.reduce((sum,f)=>sum+braceOffsetsMm(f.height,f.braceSpacingMm??0).length,0)>MAX_PROJECT_BRACES)throw new Error(`Maksimal ${MAX_PROJECT_BRACES} hollow tengah dalam satu proyek.`);
+  return copies;
 }

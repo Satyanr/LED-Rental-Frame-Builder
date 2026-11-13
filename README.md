@@ -1,6 +1,6 @@
 # Contruction Builder (LED Rental)
 
-Versi **1.5.0** — tali jerigen yang dapat diikat ke hollow pilihan serta kunci posisi dan rotasi objek.
+Versi **1.6.0** — pilih beberapa objek, shortcut copy/paste dan select all, grup, serta jumlah pemberat pada hasil simpan/muat JSON.
 
 Editor 3D lokal untuk menyusun rangka, kabinet LED rental, dan objek pemberat secara manual. Dibuat dengan HTML, CSS, JavaScript dan Three.js r170 yang sudah disertakan dalam paket. **Tidak memerlukan internet, akun, instalasi, atau proses build untuk dipakai.**
 
@@ -34,7 +34,7 @@ Tidak perlu menjalankan server. Jika ingin menggunakan server lokal, dari folder
 - Ukuran kabinet yang sudah ditambahkan bisa diubah melalui **Properti LED Screen**, memakai preset atau kolom lebar/tinggi. Badan kabinet dimodelkan setebal 80 mm. Bezel tetap **2 mm pada tiap sisi** mengelilingi permukaan LED di depan dan belakang; dua kabinet berdampingan memiliki total batas 4 mm, tanpa mengubah ukuran luar lebar/tinggi kabinet.
 - Frame, hollow lurus, dan kabinet LED semuanya mendukung pilihan dari daftar atau viewport, drag/drop kartu, geser, putar, letakkan di lantai, duplikat, hapus, Undo/Redo, dan ekspor PNG.
 - Posisi awal objek baru tetap di titik asal dengan sisi bawah di lantai. Geser kabinet secara manual untuk menyusun videotron; tidak ada pembagian kabinet atau penyusunan otomatis.
-- Tab aktif, pilihan bentuk, ukuran kabinet pada form, dan seluruh jenis objek ikut disimpan dalam JSON v1.5. JSON dari versi sebelumnya tetap bisa dimuat; objek lama dibaca sebagai frame.
+- Tab aktif, pilihan bentuk, ukuran kabinet pada form, dan seluruh jenis objek ikut disimpan dalam JSON v1.6. JSON dari versi sebelumnya tetap bisa dimuat; objek lama dibaca sebagai frame.
 - Batas proyek **300 objek** berlaku untuk gabungan frame, hollow lurus, LED Screen, dan pemberat. Batas ukuran frame/kabinet serta panjang hollow tetap 100–50.000 mm.
 - Untuk mencoba susunan, klik **Muat** dan pilih `contoh-frame-dan-led-screen.json`: berisi frame kotak dengan delapan kabinet 1000 × 500 mm yang saling berdampingan, frame persegi panjang, hollow lurus, dan satu kabinet custom 1280 × 720 mm.
 
@@ -66,6 +66,17 @@ Satu jerigen memiliki satu tali pengikat ke hollow. Tali ditampilkan sebagai gar
 - Objek tetap bisa dipilih, diganti namanya, diubah ukurannya, diduplikat, dan dihapus. Hasil duplikasi selalu terbuka kuncinya agar dapat ditempatkan.
 - Status kunci dan sambungan tali ikut Undo/Redo serta simpan/muat JSON v1.5. JSON lama dibaca dengan kunci nonaktif dan tanpa tali pengikat tambahan.
 
+## Pilih beberapa, copy/paste, dan grup
+
+- **Ctrl/Shift+klik** pada objek di viewport atau daftar untuk menambah/melepas pilihan. **Ctrl+A** atau tombol **Pilih semua** memilih seluruh objek, termasuk pemberat dan objek terkunci.
+- **Ctrl+C** menyimpan pilihan untuk disalin; **Ctrl+V** menempel salinannya dengan offset Z +150 mm. Paste berikutnya memakai +300 mm, +450 mm, dan seterusnya. Copy/Paste bekerja dalam sesi editor yang sama, termasuk setelah membuat proyek Baru. Posisi, ukuran, rotasi, jenis pemberat, dan kedalaman ikut disalin. Salinan terbuka kuncinya.
+- **Ctrl+G / Group** menjadikan pilihan satu grup. Klik salah satu anggota untuk memilih seluruh grup. **Alt+klik** memilih satu anggota untuk mengubah nama, ukuran, tali, atau kuncinya.
+- **Ctrl+Shift+G / Ungroup** melepas grup dan mempertahankan posisi objek. **Ctrl+D**, **Delete**, dan Undo/Redo juga berlaku pada seluruh pilihan.
+- Geser melalui objek atau gizmo untuk memindahkan pilihan bersama. Posisi numerik mengacu ke pusat pilihan; putaran dilakukan terhadap pusat tersebut dan mempertahankan jarak antaranggotanya. Kotak garis hijau menandai batas pilihan. Letakkan di lantai memindahkan pilihan sampai sisi terbawahnya berada di Y=0.
+- Jika ada anggota terkunci, buka semua kunci pilihan untuk menggeser/memutar bersama. Sakelar kunci pada pilihan beberapa objek dapat menyamakan status seluruh anggota.
+- Menyalin jerigen bersama frame tujuannya mengarahkan tali ke frame salinan. Menyalin jerigen saja mempertahankan tujuan yang masih ada dalam proyek; saat ditempel ke proyek kosong, sambungan ke tujuan lama dilepas.
+- Keanggotaan grup tersimpan di JSON v1.6. Muat **contoh-group-dan-pemberat.json**, klik salah satu anggota, lalu coba geser, putar, copy/paste, dan Ungroup.
+
 ## Kamera dan grid
 
 - Seret area kosong untuk orbit; klik kanan dan seret untuk pan; roda mouse untuk zoom. Pada layar sentuh, gunakan satu jari di area kosong untuk orbit dan dua jari untuk pan/zoom.
@@ -85,7 +96,9 @@ Satu jerigen memiliki satu tali pengikat ke hollow. Tali ditampilkan sebagai gar
 
 ## Simpan, muat, dan screenshot
 
-- **Simpan JSON** membaca perubahan properti yang sedang diketik sebelum membuat file, termasuk kedalaman pemberat dan posisi ikat tali. Nilai pada form pembuatan objek ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.5 pada nama file dan `appVersion` di dalam JSON.
+- **Simpan JSON** membaca perubahan properti yang sedang diketik sebelum membuat file, termasuk kedalaman pemberat dan posisi ikat tali. Nilai pada form pembuatan objek ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.6 pada nama file dan `appVersion` di dalam JSON.
+- Pesan hasil simpan/muat dan status bawah menampilkan jumlah pemberat. Tekan **Tambah Pemberat** agar objek masuk proyek sebelum menyimpan. Pengaturan jenis dan ukuran form pada `ballastTemplate` terpisah dari objek aktual di `frames`. File dengan 0 objek pemberat hanya dapat memulihkan objek yang memang tersimpan; tambahkan pemberat kembali lalu simpan JSON baru.
+- Seluruh geometri proyek baru disiapkan sebelum mengganti proyek aktif. Jika pemuatan gagal, proyek sebelumnya tetap dipertahankan; impor tidak meninggalkan sebagian objek terpasang.
 - **Simpan JSON** mengunduh proyek: seluruh frame, nama, dimensi, jarak hollow tengah, posisi, rotasi, preferensi snap/grid, dan keadaan kamera. Simpan sebelum menutup halaman; tidak ada penyimpanan otomatis.
 - **Muat** membaca file JSON lokal dari aplikasi ini. Format, nilai angka, batas objek, dan profil hollow divalidasi sebelum mengganti proyek. File rusak ditolak tanpa mengubah objek saat ini. Ukuran file maksimal 5 MB.
 - **Export PNG** mengunduh tampilan 3D saat ini, termasuk grid dan label dimensi terpilih jika diaktifkan. Gizmo dan panel editor tidak ikut diekspor. PNG mengikuti resolusi viewport dengan rasio piksel perangkat maksimal 2.
@@ -107,8 +120,12 @@ Format JSON tetap kompatibel dengan versi sebelumnya. Jika JSON lama tidak memil
 | E | Mode putar |
 | F | Fit semua objek |
 | Esc | Batalkan geseran aktif / lepaskan pilihan |
-| Ctrl+D | Duplikat frame |
-| Delete / Backspace | Hapus frame |
+| Ctrl+A | Pilih semua objek |
+| Ctrl+C / Ctrl+V | Copy / paste pilihan |
+| Ctrl+G | Buat grup dari pilihan |
+| Ctrl+Shift+G | Lepas grup |
+| Ctrl+D | Duplikat pilihan |
+| Delete / Backspace | Hapus pilihan |
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z / Ctrl+Y | Redo |
 | Ctrl+S | Simpan JSON |
@@ -129,6 +146,7 @@ Panel kiri dan kanan berubah menjadi panel buka/tutup melalui **Frame & objek** 
 - `tests/project.test.js`: pemeriksaan format proyek, batas dimensi, angka, snap, dan kamera.
 - `tests/browser-smoke.mjs`: pemeriksaan browser opsional dengan Playwright; jalankan `node tests/browser-smoke.mjs` jika Playwright dan Chromium tersedia. `PLAYWRIGHT_MODULE` dan `CHROME_PATH` dapat menunjuk instalasi yang sudah ada. Hasil tersimpan di `.verification/`.
 - `tests/attachments-browser.mjs`: pemeriksaan browser untuk kunci objek, pemilihan hollow melalui klik, tali yang mengikuti transformasi, penghapusan tujuan, Undo/Redo, JSON, dan layar kecil. Jalankan dengan konfigurasi Playwright yang sama.
+- `tests/selection-browser.mjs`: pemeriksaan impor tanpa pemberat, penambahan/simpan/muat kedua pemberat, Ctrl+A/C/V/G, grup, transformasi bersama, kunci, dan Undo/Redo. `IMPORT_FIXTURE` opsional menunjuk JSON proyek 21 objek untuk memeriksa file lokal dengan pola 20 frame + 1 LED; tanpa variabel ini dipakai berkas uji sintetis.
 - `THREE-LICENSE.txt`: lisensi MIT Three.js.
 
 Jika mengubah sumber, jalankan `npm install` sekali, lalu `npm run build` dari folder ini. Build memperbarui bundle dan HTML mandiri. Pemeriksaan format data dapat dijalankan dengan `npm test` (memerlukan Node.js).

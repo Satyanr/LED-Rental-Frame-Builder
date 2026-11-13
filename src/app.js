@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { HOLLOW, BALLAST_PRESETS, MAX_FRAMES, MAX_PROJECT_BRACES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, braceSpacing, braceOffsetsMm, objectMembers, objectSummary, objectLabel, isBallast, isJerrycan, isTubeTarget, validateTie, tubeAnchor, validateBallastTemplate, validateFrameTemplate, validateLedTemplate, numeric, normalizeDegrees, snapValue, validateProject, makeProject } from './project.js';
+import { HOLLOW, BALLAST_PRESETS, MAX_FRAMES, MAX_PROJECT_BRACES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, braceSpacing, braceOffsetsMm, objectMembers, objectSummary, objectLabel, isBallast, isJerrycan, isTubeTarget, validateTie, tubeAnchor, validateBallastTemplate, validateFrameTemplate, validateLedTemplate, numeric, normalizeDegrees, snapValue, validateProject, makeProject, cloneObjects } from './project.js';
 import { memberGeometry, fitMeshesToDimensions, concreteTexture, tieVisualPoints } from './geometry.js';
 
 const $ = id => document.getElementById(id);
@@ -49,6 +49,9 @@ function main() {
   const tieMaterial=new THREE.MeshStandardMaterial({color:0xc39b57,roughness:1});
   const cube=new THREE.BoxGeometry(1,1,1), cubeEdges=new THREE.EdgesGeometry(cube);
   const objects=new Map();let selected=null;let settings={...DEFAULT_SETTINGS};let lastSummary='';
+  const selection=new Set(),selectionProxy=new THREE.Object3D();scene.add(selectionProxy);
+  const selectionBounds=new THREE.Box3(),selectionOutline=new THREE.Box3Helper(selectionBounds,0x69964f);scene.add(selectionOutline);selectionOutline.visible=false;
+  let proxyMatrix=new THREE.Matrix4(),clipboard=[],pasteCount=0;
   let currentView='iso', orthoSpan=5.5, dirty=true, projectDirty=false, savedFrames='', frameCounter=1;
   let mode='translate', drag=null, gizmoGesture=false, ignoreNextGizmoCommit=false;
   let histories=[], historyIndex=-1;
@@ -73,11 +76,12 @@ function main() {
   });
   transform.addEventListener('objectChange',()=>{
     if(!selected)return;
-    selected.position.clampScalar(-LIMIT_POSITION,LIMIT_POSITION);syncSelected();syncFields();dirty=true;
+    if(selection.size>1){try{applyProxyDelta();}catch(e){toast(e.message,true);}}else selected.position.clampScalar(-LIMIT_POSITION,LIMIT_POSITION);
+    syncSelected();syncFields();dirty=true;
   });
   // Exterior envelopes represent the perimeter tubes and optional horizontal braces.
   // All members belong to the same frame group; the openings remain empty.
-  function buildFrame(data) {
+  function buildFrame(data,register=true) {
     const group=new THREE.Group();group.userData.frame={...data,position:[...data.position],rotation:[...data.rotation]};
     const isLed=data.type==='led',ballast=isBallast(data),concrete=ballast&&data.ballastKind==='concrete-block';
     const baseColor=ballast?(concrete?0xa4a397:0x267ca1):isLed?0x202b35:0x8faaa0;
@@ -90,9 +94,11 @@ function main() {
       group.userData.detailMaterials={rope:new THREE.MeshStandardMaterial({color:0xd2b57d,roughness:1}),cap:new THREE.MeshStandardMaterial({color:0x153d52,roughness:.8}),rib:new THREE.MeshStandardMaterial({color:0x246c8a,roughness:.7})};
       if(concrete)mat.map=concreteTexture();
     }
-    resizeFrame(group,data.width,data.height,data.braceSpacingMm??0);
-    group.position.fromArray(data.position);group.rotation.set(...data.rotation.map(THREE.MathUtils.degToRad),'XYZ');
-    framesRoot.add(group);objects.set(data.id,group);return group;
+    try{
+      resizeFrame(group,data.width,data.height,data.braceSpacingMm??0);
+      group.position.fromArray(data.position);group.rotation.set(...data.rotation.map(THREE.MathUtils.degToRad),'XYZ');
+      if(register){framesRoot.add(group);objects.set(data.id,group);}return group;
+    }catch(e){disposeFrame(group);throw e;}
   }
   function clearBallastMeshes(group) {
     for(const mesh of [...group.children]){mesh.geometry.dispose();group.remove(mesh);}
@@ -122,10 +128,33 @@ function main() {
   function disposeFrame(group) {framesRoot.remove(group);if(isBallast(group.userData.frame))clearBallastMeshes(group);group.userData.material.map?.dispose();group.userData.material.dispose();group.userData.edgeMaterial.dispose();group.userData.screenMaterial?.dispose();Object.values(group.userData.detailMaterials??{}).forEach(m=>m.dispose());}
   function frameData(group) {
     const f=group.userData.frame;
-    return {id:f.id,name:f.name,type:f.type??'frame',locked:f.locked??false,...(f.tie?{tie:{...f.tie}}:{}),...(f.type==='frame'?{shape:f.shape}:{}),...(isBallast(f)?{ballastKind:f.ballastKind,depth:f.depth}:{}),width:f.width,height:f.height,braceSpacingMm:f.braceSpacingMm??0,position:group.position.toArray().map(round),rotation:[group.rotation.x,group.rotation.y,group.rotation.z].map(v=>round(normalizeDegrees(THREE.MathUtils.radToDeg(v))))};
+    return {id:f.id,name:f.name,type:f.type??'frame',locked:f.locked??false,...(f.groupId?{groupId:f.groupId}:{}),...(f.tie?{tie:{...f.tie}}:{}),...(f.type==='frame'?{shape:f.shape}:{}),...(isBallast(f)?{ballastKind:f.ballastKind,depth:f.depth}:{}),width:f.width,height:f.height,braceSpacingMm:f.braceSpacingMm??0,position:group.position.toArray().map(round),rotation:[group.rotation.x,group.rotation.y,group.rotation.z].map(v=>round(normalizeDegrees(THREE.MathUtils.radToDeg(v))))};
   }
   function allFrames() {return [...objects.values()].map(frameData);}
-  function syncSelected() {if(selected){const f=frameData(selected);selected.userData.frame=f;updateListItem(selected);}}
+  function syncSelected() {for(const group of selection){group.userData.frame=frameData(group);updateListItem(group);}}
+  const transformTarget=()=>selection.size>1?selectionProxy:selected;
+  const selectionLocked=()=>[...selection].some(g=>g.userData.frame.locked);
+  function resetProxy() {
+    const box=new THREE.Box3();for(const g of selection){g.updateMatrixWorld(true);box.union(new THREE.Box3().setFromObject(g));}
+    if(!box.isEmpty())selectionProxy.position.copy(box.getCenter(new THREE.Vector3()));
+    selectionProxy.quaternion.identity();selectionProxy.updateMatrix();proxyMatrix.copy(selectionProxy.matrix);
+  }
+  function updateSelectionOutline() {
+    selectionOutline.visible=selection.size>1;if(!selectionOutline.visible)return;
+    selectionBounds.makeEmpty();for(const g of selection){g.updateMatrixWorld(true);selectionBounds.union(new THREE.Box3().setFromObject(g));}
+  }
+  function applyProxyDelta() {
+    selectionProxy.updateMatrix();const delta=new THREE.Matrix4().multiplyMatrices(selectionProxy.matrix,proxyMatrix.clone().invert());
+    try{
+      const poses=[...selection].map(g=>{
+        g.updateMatrix();const matrix=new THREE.Matrix4().multiplyMatrices(delta,g.matrix),position=new THREE.Vector3(),quaternion=new THREE.Quaternion(),scale=new THREE.Vector3();matrix.decompose(position,quaternion,scale);
+        if(position.toArray().some(n=>!Number.isFinite(n)||Math.abs(n)>LIMIT_POSITION))throw new Error('Pilihan melewati batas posisi ±500 meter.');
+        return {g,position,quaternion};
+      });
+      for(const {g,position,quaternion} of poses){g.position.copy(position);g.quaternion.copy(quaternion);}
+      proxyMatrix.copy(selectionProxy.matrix);
+    }catch(e){proxyMatrix.decompose(selectionProxy.position,selectionProxy.quaternion,selectionProxy.scale);selectionProxy.updateMatrix();throw e;}
+  }
   function reconcileTies() {
     for(const group of objects.values()){
       const f=group.userData.frame;if(!f.tie)continue;
@@ -163,7 +192,7 @@ function main() {
     select.value=String(value);
   }
   function syncTieControls() {
-    const source=selected?frameData(selected):null,visible=!!source&&isJerrycan(source);$('tie-controls').hidden=!visible;if(!visible)return;
+    const source=selected?frameData(selected):null,visible=selection.size===1&&!!source&&isJerrycan(source);$('tie-controls').hidden=!visible;if(!visible)return;
     const targets=[...objects.values()].filter(g=>isTubeTarget(g.userData.frame));
     fillOptions($('tie-target'),[['','Belum diikat'],...targets.map(g=>[g.userData.frame.id,g.userData.frame.name])],source.tie?.targetId??'');
     const target=objects.get(source.tie?.targetId)?.userData.frame;
@@ -178,12 +207,12 @@ function main() {
     applySelectedChange(()=>{const f=selected.userData.frame;if(!isJerrycan(f))return;const tie=validateTie({targetId,memberIndex,t});const target=objects.get(targetId);if(!target)throw new Error('Tujuan tali tidak tersedia.');tubeAnchor(target.userData.frame,tie);f.tie=tie;});
   }
   function syncLockControls() {
-    const locked=!!selected?.userData.frame.locked;$('object-locked').checked=locked;
-    $('lock-hint').textContent=locked?'Terkunci. Buka kunci untuk menggeser atau memutar.':'Aktifkan setelah posisi dan rotasi sudah sesuai.';
+    const locked=selectionLocked(),allLocked=selection.size>0&&[...selection].every(g=>g.userData.frame.locked);$('object-locked').checked=allLocked;$('object-locked').indeterminate=locked&&!allLocked;
+    $('lock-hint').textContent=locked?'Terkunci. Buka semua kunci pilihan untuk menggeser atau memutar.':'Aktifkan setelah posisi dan rotasi sudah sesuai.';
     for(const el of $$('[id^="position-"],[id^="rotation-"],[data-rotate],#ground-frame'))el.disabled=locked;
     transform.enabled=!locked&&!tiePicking;
-    if(selected&&!locked&&!tiePicking){if(transform.object!==selected)transform.attach(selected);}else if(transform.object)transform.detach();
-    if(selected)$('status-text').textContent=`${selected.userData.frame.name}${locked?' · terkunci':''}`;
+    const target=transformTarget();if(target&&!locked&&!tiePicking){if(transform.object!==target)transform.attach(target);}else if(transform.object)transform.detach();
+    if(selected)$('status-text').textContent=`${selection.size>1?selection.size+' objek terpilih':selected.userData.frame.name}${locked?' · terkunci':''}`;
   }
   const gridRoot=new THREE.Group();scene.add(gridRoot);let gridSize=0;
   function updateGrid() {
@@ -203,7 +232,7 @@ function main() {
   const dimensionGeometry=new THREE.BufferGeometry();const dimensionLines=new THREE.LineSegments(dimensionGeometry,new THREE.LineBasicMaterial({color:0x7d9a6d,transparent:true,opacity:.65,depthTest:false}));dimensionLines.renderOrder=3;dimensionRoot.add(dimensionLines);
   const dimensionAnchors=[new THREE.Vector3(),new THREE.Vector3()];
   function updateDimensions() {
-    const visible=!!selected&&settings.dimensions;dimensionRoot.visible=visible;
+    const visible=selection.size===1&&!!selected&&settings.dimensions;dimensionRoot.visible=visible;
     $('dimension-width').hidden=!visible;$('dimension-height').hidden=!visible;
     if(!visible)return;
     const {width:w,height:h}=selected.userData.frame;const gap=Math.max(.15,Math.min(w,h)*.09),tick=gap*.18;
@@ -229,6 +258,7 @@ function main() {
     const row=$('object-list').querySelector(`[data-id="${CSS.escape(group.userData.frame.id)}"]`);if(!row)return;
     const f=group.userData.frame;row.querySelector('strong').textContent=f.name;row.querySelector('small').textContent=objectSize(f);
     row.classList.toggle('locked',!!f.locked);row.querySelector('.object-lock').hidden=!f.locked;
+    row.querySelector('.group-badge').hidden=!f.groupId;
   }
   function objectSize(f) {return f.type==='hollow'?`Hollow 40 × 40 · ${fmt(f.height*1000)} mm`: `${f.type==='led'?'LED · ':''}${fmt(f.width*1000)} × ${fmt(f.height*1000)}${isBallast(f)?' × '+fmt(f.depth*1000):''} mm`;}
   function renderList() {
@@ -241,10 +271,11 @@ function main() {
       const name=document.createElement('strong');name.textContent=f.name;const size=document.createElement('small');size.textContent=objectSize(f);info.append(name,size);
       const number=document.createElement('span');number.className='object-index';number.textContent=String(index).padStart(2,'0');row.append(icon,info,number);
       const lock=document.createElement('span');lock.className='object-lock';lock.innerHTML='<svg aria-hidden="true"><use href="#i-lock"/></svg>';lock.title='Posisi dan rotasi terkunci';lock.setAttribute('aria-label','Terkunci');lock.hidden=!f.locked;row.append(lock);row.classList.toggle('locked',!!f.locked);
-      row.addEventListener('click',()=>{select(group);if(innerWidth<=800){document.querySelector('.library').classList.remove('panel-open');}});
+      const badge=document.createElement('span');badge.className='group-badge';badge.textContent='G';badge.title='Anggota grup · Alt+klik untuk pilih satu anggota';badge.hidden=!f.groupId;row.append(badge);
+      row.addEventListener('click',event=>{select(group,{additive:event.ctrlKey||event.metaKey||event.shiftKey,single:event.altKey});if(innerWidth<=800&&!event.ctrlKey&&!event.shiftKey){document.querySelector('.library').classList.remove('panel-open');}});
       $('object-list').append(row);
     }
-    $('object-count').textContent=String(objects.size);$('status-count').textContent=`${objects.size} objek`;$('empty-list').hidden=objects.size>0;$('viewport-empty').hidden=objects.size>0;updateSelectionList();renderFrameSummary();
+    $('object-count').textContent=String(objects.size);$('status-count').textContent=`${objects.size} objek · ${[...objects.values()].filter(g=>isBallast(g.userData.frame)).length} pemberat`;$('empty-list').hidden=objects.size>0;$('viewport-empty').hidden=objects.size>0;updateSelectionList();renderFrameSummary();
   }
   function renderFrameSummary() {
     const summary=objectSummary(allFrames()),key=JSON.stringify(summary);if(key===lastSummary)return;lastSummary=key;$('summary-total').textContent=`${summary.total} pcs`;
@@ -255,28 +286,61 @@ function main() {
       size.append(kind,document.createTextNode(item.type==='hollow'?`40 × 40 · ${fmt(item.height*1000)} mm`:objectSize(item).replace(/^LED · /,'')));quantity.textContent=`${item.quantity} pcs`;row.append(size,quantity);$('frame-summary-body').append(row);
     }
   }
-  function updateSelectionList() {for(const row of $('object-list').children){const active=row.dataset.id===selected?.userData.frame.id;row.classList.toggle('active',active);row.setAttribute('aria-selected',String(active));}}
-  function select(group) {
-    if(tiePicking&&group?.userData.frame.id!==tiePicking)setTiePicking();
-    if(selected){const led=selected.userData.frame.type==='led';selected.userData.material.color.setHex(selected.userData.baseColor);selected.userData.material.emissive.setHex(0);selected.userData.edgeMaterial.color.setHex(led?0x718594:0x587466);selected.userData.screenMaterial?.color.setHex(0x203c55);}
-    selected=group||null;transform.detach();
-    if(selected){const led=selected.userData.frame.type==='led';selected.userData.material.color.setHex(isBallast(selected.userData.frame)?selected.userData.baseColor:led?0x3b645f:0x628f72);selected.userData.material.emissive.setHex(0x0c2110);selected.userData.edgeMaterial.color.setHex(led?0x9ec4bd:0x356349);selected.userData.screenMaterial?.color.setHex(0x2c5269);transform.attach(selected);}
-    $('no-selection').hidden=!!selected;$('selection-controls').hidden=!selected;if(!selected)$('inspector-title').textContent='Properti objek';updateSelectionList();syncFields();updateDimensions();dirty=true;
-    $('status-text').textContent=selected?`${selected.userData.frame.name}${selected.userData.frame.locked?' · terkunci':''}`:'Siap menyusun';
+  function updateEditButtons() {
+    $('selection-count').textContent=`${selection.size} dipilih`;
+    $('copy-selection').disabled=!selection.size;$('paste-selection').disabled=!clipboard.length;
+    $('group-selection').disabled=selection.size<2;$('ungroup-selection').disabled=![...selection].some(g=>g.userData.frame.groupId);
+    $('select-all').disabled=!objects.size;
+  }
+  function updateSelectionList() {
+    for(const row of $('object-list').children){const active=[...selection].some(g=>g.userData.frame.id===row.dataset.id);row.classList.toggle('active',active);row.setAttribute('aria-selected',String(active));}
+    updateEditButtons();
+  }
+  function tintSelection(group,active) {
+    const led=group.userData.frame.type==='led';
+    group.userData.material.color.setHex(active&&!isBallast(group.userData.frame)?led?0x3b645f:0x628f72:group.userData.baseColor);
+    group.userData.material.emissive.setHex(active?0x0c2110:0);
+    group.userData.edgeMaterial.color.setHex(active?led?0x9ec4bd:0x356349:led?0x718594:0x587466);
+    group.userData.screenMaterial?.color.setHex(active?0x2c5269:0x203c55);
+  }
+  function setSelection(groups,primary=null) {
+    if(tiePicking&&(groups.length!==1||groups[0].userData.frame.id!==tiePicking))setTiePicking();
+    for(const g of selection)tintSelection(g,false);selection.clear();
+    for(const g of groups)if(objects.get(g.userData.frame.id)===g)selection.add(g);
+    selected=selection.has(primary)?primary:[...selection].at(-1)??null;transform.detach();
+    for(const g of selection)tintSelection(g,true);if(selection.size>1)resetProxy();
+    $('no-selection').hidden=!!selected;$('selection-controls').hidden=!selected;
+    if(!selected){$('inspector-title').textContent='Properti objek';$('status-text').textContent='Siap menyusun';}
+    updateSelectionList();syncFields();updateDimensions();dirty=true;
+  }
+  function select(group,{additive=false,single=false}={}) {
+    if(!group){setSelection([]);return;}
+    const groupId=group.userData.frame.groupId;
+    const batch=!single&&groupId?[...objects.values()].filter(g=>g.userData.frame.groupId===groupId):[group];
+    if(!additive){setSelection(batch,group);return;}
+    const next=new Set(selection),remove=batch.every(g=>next.has(g));for(const g of batch){if(remove)next.delete(g);else next.add(g);}
+    setSelection([...next],group);
   }
   function syncFields() {
     if(!selected)return;
     const f=frameData(selected);const id=f.name.toUpperCase();$('selected-id').textContent=id.length>24?id.slice(0,24)+'…':id;
-    const led=f.type==='led',hollow=f.type==='hollow',ballast=isBallast(f);
+    const led=f.type==='led',hollow=f.type==='hollow',ballast=isBallast(f),multi=selection.size>1;
     $('inspector-title').textContent=ballast?'Properti pemberat':led?'Properti LED Screen':hollow?'Properti hollow':'Properti frame';
     $('selected-type').textContent=ballast?`PEMBERAT · ${objectLabel(f).toUpperCase()}`:led?'VIDEOTRON · 1 KABINET':hollow?'HOLLOW LURUS · 40 × 40 MM':f.shape==='square'?'FRAME KOTAK':'FRAME PERSEGI PANJANG';
+    $('frame-name').closest('label').hidden=multi;$('dimension-controls').hidden=multi;
+    $('position-help').textContent=multi?'meter · pusat pilihan':'meter · titik tengah';
+    if(multi){
+      const groups=new Set([...selection].map(g=>g.userData.frame.groupId));
+      $('selected-id').textContent=`${selection.size} OBJEK`;$('inspector-title').textContent='Properti pilihan';
+      $('selected-type').textContent=groups.size===1&&f.groupId?'GRUP OBJEK':'PILIHAN BEBERAPA OBJEK';
+    }
     $('frame-brace-controls').hidden=f.type!=='frame';$('frame-width').disabled=hollow;$('frame-width').min=hollow?'40':'100';
     $('frame-depth-field').hidden=!ballast;$('frame-depth').disabled=!ballast;
     $('frame-height-label').textContent=hollow?'Panjang':'Tinggi';$('selected-led-size-field').hidden=!led;
     $('selected-led-size').value=ledPreset(f.width,f.height);
     $('dimension-hint').textContent=ballast?'Lebar × tinggi × kedalaman termasuk tali dan pegangan. Ukuran berpusat di titik tengah.':led?'Bezel 2 mm · tebal kabinet 80 mm. Ukuran berpusat di titik tengah.':hollow?'Profil tetap 40 × 40 mm. Panjang searah sumbu Y lokal.':'Perubahan ukuran berpusat di titik tengah.';
     const fields={'frame-name':f.name,'frame-width':round(f.width*1000),'frame-height':round(f.height*1000),'frame-brace-spacing':f.braceSpacingMm,'frame-depth':ballast?round(f.depth*1000):''};
-    ['x','y','z'].forEach((axis,i)=>{fields[`position-${axis}`]=f.position[i];fields[`rotation-${axis}`]=Number(f.rotation[i].toFixed(3));});
+    const target=transformTarget();['x','y','z'].forEach((axis,i)=>{fields[`position-${axis}`]=multi?round(target.position[axis]):f.position[i];fields[`rotation-${axis}`]=multi?round(normalizeDegrees(THREE.MathUtils.radToDeg(target.rotation[axis]))):Number(f.rotation[i].toFixed(3));});
     for(const [id,value] of Object.entries(fields)){if(document.activeElement!==$(id))$(id).value=String(value);}
     syncLockControls();syncTieControls();updateBraceSummary('frame');updateDimensions();
   }
@@ -306,7 +370,7 @@ function main() {
   }
   function contentDigest() {return JSON.stringify({frames:allFrames(),settings,paletteType,frameShape,templateInputs:[$('add-width').value,$('add-height').value,$('add-brace-spacing').value,$('add-led-width').value,$('add-led-height').value,$('ballast-kind').value,...['width','height','depth'].map(axis=>$(`add-ballast-${axis}`).value)]});}
   function markEdited() {projectDirty=contentDigest()!==savedFrames;$('save-status').textContent=projectDirty?'Perubahan belum disimpan':'Proyek tersimpan · lokal';}
-  function snapshot() {return JSON.stringify({frames:allFrames(),selected:selected?.userData.frame.id||null});}
+  function snapshot() {return JSON.stringify({frames:allFrames(),selected:[...selection].map(g=>g.userData.frame.id)});}
   function pushHistory() {
     reconcileTies();syncTieControls();
     renderFrameSummary();
@@ -318,7 +382,11 @@ function main() {
   }
   function updateHistoryButtons() {$('undo').disabled=historyIndex<=0;$('redo').disabled=historyIndex>=histories.length-1;}
   function replaceFrames(frames,selectedId=null) {
-    setTiePicking();select(null);for(const g of objects.values())disposeFrame(g);objects.clear();for(const id of tieMeshes.keys())removeTieMesh(id);frames.forEach(buildFrame);renderList();select(objects.get(selectedId)||null);updateGrid();dirty=true;
+    const staged=[];try{for(const f of frames)staged.push(buildFrame(f,false));}catch(e){staged.forEach(disposeFrame);throw e;}
+    setTiePicking();select(null);for(const g of objects.values())disposeFrame(g);objects.clear();for(const id of tieMeshes.keys())removeTieMesh(id);
+    for(const g of staged){framesRoot.add(g);objects.set(g.userData.frame.id,g);}renderList();
+    if(Array.isArray(selectedId))setSelection(selectedId.map(id=>objects.get(id)).filter(Boolean));else select(objects.get(selectedId)||null);
+    updateGrid();dirty=true;
   }
   function restoreHistory(delta) {
     if(drag||transform.dragging)return;
@@ -358,20 +426,35 @@ function main() {
       if(innerWidth<=800)document.querySelector('.library').classList.remove('panel-open');
     }catch(e){toast(e.message,true);}
   }
-  function duplicate() {
-    if(!selected)return;if(objects.size>=MAX_FRAMES){toast(`Maksimal ${MAX_FRAMES} objek per proyek.`,true);return;}
-    try{ensureBraceBudget(selected.userData.frame.height,selected.userData.frame.braceSpacingMm??0);}catch(e){toast(e.message,true);return;}
-    const data=frameData(selected);data.id=uid();data.locked=false;data.name=`${objectLabel(data)} ${String(frameCounter++).padStart(2,'0')}`;
-    // A small depth offset makes duplicates individually selectable, without arranging a pattern.
-    const offset=data.position[2]+.15<=LIMIT_POSITION ? .15 : -.15;data.position[2]=round(data.position[2]+offset);
-    const group=buildFrame(data);renderList();select(group);pushHistory();toast(`Objek diduplikat dengan offset Z ${offset>0?'+':'−'}0,15 m.`);
+  function copySelection() {
+    if(!selection.size)return;clipboard=JSON.parse(JSON.stringify([...selection].map(frameData)));pasteCount=0;updateEditButtons();toast(`${clipboard.length} objek disalin. Ctrl+V untuk menempel.`);
   }
-  function removeSelected() {if(!selected)return;const id=selected.userData.frame.id;const group=selected;select(null);disposeFrame(group);objects.delete(id);renderList();pushHistory();toast('Objek dihapus. Ctrl+Z untuk mengembalikan.');}
+  function pasteObjects(source=clipboard,offset=null) {
+    if(!source.length){toast('Salin objek terlebih dahulu.',true);return;}
+    try{
+      const step=offset??[0,0,.15*(pasteCount+1)],copies=cloneObjects(source,allFrames(),step);
+      replaceFrames([...allFrames(),...copies],copies.map(f=>f.id));if(!offset)pasteCount++;frameCounter+=copies.length;pushHistory();fitAll();toast(`${copies.length} objek ditempel, termasuk pemberat yang disalin.`);
+    }catch(e){toast(e.message,true);}
+  }
+  function duplicate() {if(selection.size)pasteObjects([...selection].map(frameData),[0,0,[...selection].some(g=>g.position.z+.15>LIMIT_POSITION)?-.15:.15]);}
+  function selectAll() {setSelection([...objects.values()]);}
+  function groupSelection() {
+    if(selection.size<2)return;const id=uid();for(const g of selection)g.userData.frame.groupId=id;
+    syncSelected();renderList();syncFields();pushHistory();toast(`${selection.size} objek dijadikan satu grup.`);
+  }
+  function ungroupSelection() {
+    const ids=new Set([...selection].map(g=>g.userData.frame.groupId).filter(Boolean));if(!ids.size)return;
+    for(const g of objects.values())if(ids.has(g.userData.frame.groupId))delete g.userData.frame.groupId;
+    syncSelected();renderList();syncFields();pushHistory();toast('Grup dilepas. Objek tetap pada posisi semula.');
+  }
+  function removeSelected() {
+    if(!selection.size)return;const removed=[...selection];select(null);for(const g of removed){disposeFrame(g);objects.delete(g.userData.frame.id);}reconcileTies();renderList();pushHistory();toast(`${removed.length} objek dihapus. Ctrl+Z untuk mengembalikan.`);
+  }
   function applySelectedChange(callback) {
     if(!selected)return;
     try{callback();reconcileTies();syncSelected();syncFields();pushHistory();dirty=true;}catch(e){toast(e.message,true);const active=document.activeElement;active?.blur();syncFields();}
   }
-  function applyTransformChange(callback) {if(selected?.userData.frame.locked){toast('Objek terkunci. Buka kunci pada properti untuk menggeser atau memutar.');syncFields();return;}applySelectedChange(callback);}
+  function applyTransformChange(callback) {if(selectionLocked()){toast('Pilihan terkunci. Buka semua kunci untuk menggeser atau memutar.');syncFields();return;}applySelectedChange(()=>{callback();if(selection.size>1)applyProxyDelta();});}
   function setMode(value) {
     if(drag||transform.dragging)return;mode=value;transform.setMode(value);$$('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===value));dirty=true;
   }
@@ -434,7 +517,7 @@ function main() {
   }
   function hitFrame(event) {setRay(event.clientX,event.clientY);framesRoot.updateMatrixWorld(true);return raycaster.intersectObjects([...objects.values()],true).find(h=>h.object.name==='beam')?.object.userData.frameRoot||null;}
   function hitGizmo(event) {
-    if(!selected||selected.userData.frame.locked||tiePicking)return false;setRay(event.clientX,event.clientY);gizmo.updateMatrixWorld(true);
+    if(!selected||selectionLocked()||tiePicking)return false;setRay(event.clientX,event.clientY);gizmo.updateMatrixWorld(true);
     const picker=gizmo.children.find(c=>c.type==='TransformControlsGizmo')?.picker?.[mode];
     // Use the public helper's runtime picker; it belongs to the pinned Three.js version.
     if(!picker)return transform.axis!==null;
@@ -442,7 +525,7 @@ function main() {
   }
   canvas.addEventListener('pointerdown',event=>{
     if(drag){event.stopImmediatePropagation();event.preventDefault();return;}
-    if(event.button!==0||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||transform.dragging)return;
+    if(event.button!==0||transform.dragging)return;
     if(tiePicking){
       setRay(event.clientX,event.clientY);framesRoot.updateMatrixWorld(true);
       const hit=raycaster.intersectObjects([...objects.values()].filter(g=>isTubeTarget(g.userData.frame)),true).find(h=>h.object.name==='beam');
@@ -454,27 +537,30 @@ function main() {
       }
       if(hitFrame(event)){event.stopImmediatePropagation();toast('Pilih batang frame atau hollow lurus sebagai tujuan tali.');}return;
     }
-    if(hitGizmo(event)){orbit.enabled=false;return;}
+    const additive=event.ctrlKey||event.metaKey||event.shiftKey;
+    if(!additive&&!event.altKey&&hitGizmo(event)){orbit.enabled=false;return;}
     const hit=hitFrame(event);
     if(!hit)return;
-    event.stopImmediatePropagation();event.preventDefault();select(hit);
-    if(mode==='rotate'||hit.userData.frame.locked)return;
-    setRay(event.clientX,event.clientY);const normal=camera.getWorldDirection(new THREE.Vector3());const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,hit.position);const start=raycaster.ray.intersectPlane(plane,new THREE.Vector3());if(!start)return;
+    event.stopImmediatePropagation();event.preventDefault();
+    if(additive){select(hit,{additive:true,single:event.altKey});return;}
+    if(event.altKey||!selection.has(hit)||(selection.size===1&&hit.userData.frame.groupId))select(hit,{single:event.altKey});
+    if(mode==='rotate'||selectionLocked())return;
+    const target=transformTarget();setRay(event.clientX,event.clientY);const normal=camera.getWorldDirection(new THREE.Vector3());const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,target.position);const start=raycaster.ray.intersectPlane(plane,new THREE.Vector3());if(!start)return;
     orbit.enabled=false;canvas.style.cursor='grabbing';
-    drag={id:event.pointerId,group:hit,plane,start,origin:hit.position.clone(),x:event.clientX,y:event.clientY,moved:false};
+    drag={id:event.pointerId,target,plane,start,origin:target.position.clone(),x:event.clientX,y:event.clientY,moved:false};
     canvas.setPointerCapture(event.pointerId);
   },true);
   canvas.addEventListener('pointermove',event=>{
-    if(!drag){if(tiePicking){canvas.style.cursor='crosshair';return;}if(!transform.dragging&&event.pointerType!=='touch'){const hit=hitFrame(event);canvas.style.cursor=hit?(mode==='translate'&&!hit.userData.frame.locked?'grab':'pointer'):'';}return;}
+    if(!drag){if(tiePicking){canvas.style.cursor='crosshair';return;}if(!transform.dragging&&event.pointerType!=='touch'){const hit=hitFrame(event);canvas.style.cursor=hit?(mode==='translate'&&!hit.userData.frame.locked&&!(selection.has(hit)&&selectionLocked())?'grab':'pointer'):'';}return;}
     if(event.pointerId!==drag.id)return;event.stopImmediatePropagation();event.preventDefault();
     if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<3&&!drag.moved)return;drag.moved=true;
     setRay(event.clientX,event.clientY);const p=raycaster.ray.intersectPlane(drag.plane,new THREE.Vector3());if(!p)return;
     p.sub(drag.start).add(drag.origin);if(settings.snap)p.set(...p.toArray().map(n=>snapValue(n,settings.positionStep)));p.clampScalar(-LIMIT_POSITION,LIMIT_POSITION);
-    drag.group.position.copy(p);syncSelected();syncFields();dirty=true;
+    drag.target.position.copy(p);if(selection.size>1){try{applyProxyDelta();}catch(e){toast(e.message,true);}}syncSelected();syncFields();dirty=true;
   },true);
   function endDirectDrag(cancel=false) {
     if(!drag)return;const d=drag;drag=null;
-    if(cancel)d.group.position.copy(d.origin);
+    if(cancel){d.target.position.copy(d.origin);if(selection.size>1)applyProxyDelta();}
     if(canvas.hasPointerCapture(d.id))canvas.releasePointerCapture(d.id);
     orbit.enabled=true;canvas.style.cursor='';syncSelected();syncFields();if(!cancel&&d.moved)pushHistory();dirty=true;
   }
@@ -536,7 +622,7 @@ function main() {
   $('frame-name').addEventListener('change',()=>applySelectedChange(()=>{selected.userData.frame.name=$('frame-name').value.trim()||'Frame';$('frame-name').value=selected.userData.frame.name;$('status-text').textContent=selected.userData.frame.name;}));
   $('object-locked').addEventListener('change',()=>{
     if(drag||transform.dragging){syncLockControls();return;}
-    applySelectedChange(()=>{selected.userData.frame.locked=$('object-locked').checked;});
+    applySelectedChange(()=>{const locked=$('object-locked').checked;for(const g of selection)g.userData.frame.locked=locked;});
   });
   $('tie-target').addEventListener('change',()=>{
     if($('tie-target').value)attachTie($('tie-target').value);
@@ -563,25 +649,27 @@ function main() {
     updateBraceSummary('add');if(savedFrames)markEdited();
   }));
   for(const axis of ['x','y','z']){
-    $(`position-${axis}`).addEventListener('change',()=>applyTransformChange(()=>{selected.position[axis]=numeric(inputNumber($(`position-${axis}`)),-LIMIT_POSITION,LIMIT_POSITION,'Posisi (meter)');}));
-    $(`rotation-${axis}`).addEventListener('change',()=>applyTransformChange(()=>{selected.rotation[axis]=THREE.MathUtils.degToRad(normalizeDegrees(numeric(inputNumber($(`rotation-${axis}`)),-36000,36000,'Rotasi (derajat)')));}));
+    $(`position-${axis}`).addEventListener('change',()=>applyTransformChange(()=>{transformTarget().position[axis]=numeric(inputNumber($(`position-${axis}`)),-LIMIT_POSITION,LIMIT_POSITION,'Posisi (meter)');}));
+    $(`rotation-${axis}`).addEventListener('change',()=>applyTransformChange(()=>{transformTarget().rotation[axis]=THREE.MathUtils.degToRad(normalizeDegrees(numeric(inputNumber($(`rotation-${axis}`)),-36000,36000,'Rotasi (derajat)')));}));
   }
   $$('[data-rotate]').forEach(button=>button.addEventListener('click',()=>applyTransformChange(()=>{
     const axis=new THREE.Vector3(button.dataset.rotate==='x'?1:0,button.dataset.rotate==='y'?1:0,button.dataset.rotate==='z'?1:0);
-    if(settings.space==='world')selected.rotateOnWorldAxis(axis,Math.PI/2);else selected.rotateOnAxis(axis,Math.PI/2);
+    if(settings.space==='world')transformTarget().rotateOnWorldAxis(axis,Math.PI/2);else transformTarget().rotateOnAxis(axis,Math.PI/2);
   })));
-  $('ground-frame').addEventListener('click',()=>applyTransformChange(()=>{selected.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(selected);const y=selected.position.y-box.min.y;numeric(y,-LIMIT_POSITION,LIMIT_POSITION,'Posisi Y');selected.position.y=y;}));
+  $('ground-frame').addEventListener('click',()=>applyTransformChange(()=>{const box=new THREE.Box3();for(const g of selection){g.updateMatrixWorld(true);box.union(new THREE.Box3().setFromObject(g));}const target=transformTarget(),y=target.position.y-box.min.y;numeric(y,-LIMIT_POSITION,LIMIT_POSITION,'Posisi Y');target.position.y=y;}));
   $$('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
   $$('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
   ['snap-enabled','snap-position','snap-rotation','grid-enabled','dimensions-enabled','transform-space'].forEach(id=>$(id).addEventListener('change',updateSettings));
   $('fit-all').addEventListener('click',()=>fitAll());$('duplicate').addEventListener('click',duplicate);$('delete').addEventListener('click',removeSelected);
   $('undo').addEventListener('click',()=>restoreHistory(-1));$('redo').addEventListener('click',()=>restoreHistory(1));
+  $('copy-selection').addEventListener('click',copySelection);$('paste-selection').addEventListener('click',()=>pasteObjects());
+  $('select-all').addEventListener('click',selectAll);$('group-selection').addEventListener('click',groupSelection);$('ungroup-selection').addEventListener('click',ungroupSelection);
   $('save-project').addEventListener('click',()=>{
     try{
       if(drag||transform.dragging)throw new Error('Selesaikan geseran objek sebelum menyimpan.');
       // Read the editor explicitly: saving must not depend on a blur/change event.
       const template=readFrameTemplate(),ledTemplate=readLedTemplate(),ballastTemplate=readBallastTemplate();
-      if(selected){
+      if(selected&&selection.size===1){
         const f=selected.userData.frame,w=f.type==='hollow'?HOLLOW:dimension(inputNumber($('frame-width'))/1000,'Lebar'),h=dimension(inputNumber($('frame-height'))/1000,'Tinggi');
         const spacing=f.type==='frame'?inputSpacing($('frame-brace-spacing')):0;ensureBraceBudget(h,spacing,selected);
         const depth=isBallast(f)?dimension(inputNumber($('frame-depth'))/1000,'Kedalaman pemberat'):undefined;
@@ -590,9 +678,14 @@ function main() {
         if(f.tie)f.tie=validateTie({...f.tie,memberIndex:Number($('tie-member').value),t:inputNumber($('tie-position'))/100});
         f.name=$('frame-name').value.trim()||'Objek';resizeFrame(selected,w,h,spacing,depth);selected.position.fromArray(position);selected.rotation.set(...rotation,'XYZ');reconcileTies();syncSelected();pushHistory();
       }
+      else if(selection.size>1&&!selectionLocked()){
+        const position=['x','y','z'].map(axis=>numeric(inputNumber($(`position-${axis}`)),-LIMIT_POSITION,LIMIT_POSITION,'Posisi'));
+        const rotation=['x','y','z'].map(axis=>THREE.MathUtils.degToRad(normalizeDegrees(numeric(inputNumber($(`rotation-${axis}`)),-36000,36000,'Rotasi'))));
+        selectionProxy.position.fromArray(position);selectionProxy.rotation.set(...rotation,'XYZ');applyProxyDelta();syncSelected();pushHistory();
+      }
       document.activeElement?.blur();syncFields();
       const project=makeProject(allFrames(),settings,cameraData(),template,ledTemplate,{type:paletteType,shape:frameShape},ballastTemplate);const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-      download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),`led-frame-project-v1.5-${date}.json`);savedFrames=contentDigest();markEdited();toast('JSON tersimpan, termasuk tali pengikat dan kunci objek.');
+      download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),`led-frame-project-v1.6-${date}.json`);savedFrames=contentDigest();markEdited();toast(`JSON tersimpan: ${project.frames.length} objek, termasuk ${project.frames.filter(isBallast).length} pemberat.`);
     }catch(e){toast(e.message||'Gagal menyimpan proyek.',true);}
   });
   $('load-project').addEventListener('click',()=>$('project-file').click());
@@ -604,7 +697,8 @@ function main() {
       const project=validateProject(parsed);
       if(projectDirty&&!await confirmAction('Muat proyek?', 'Proyek saat ini memiliki perubahan yang belum disimpan. Memuat file akan menggantinya. Simpan JSON terlebih dahulu bila masih diperlukan.'))return;
       replaceFrames(project.frames,project.frames[0]?.id);restoreFrameTemplate(project.frameTemplate);restoreLedTemplate(project.ledTemplate);restoreBallastTemplate(project.ballastTemplate);paletteType=project.palette.type;frameShape=project.palette.shape;updatePalette();settings=project.settings;applySettings();restoreCamera(project.camera);frameCounter=project.frames.length+1;
-      histories=[];historyIndex=-1;savedFrames=contentDigest();pushHistory();toast(`${objects.size} objek berhasil dimuat.`);
+      histories=[];historyIndex=-1;savedFrames=contentDigest();pushHistory();const ballastCount=project.frames.filter(isBallast).length;
+      toast(`${objects.size} objek berhasil dimuat, termasuk ${ballastCount} pemberat.${!ballastCount?' File ini tidak berisi objek pemberat.':''}`);
     } catch(e){toast(e.message||'Gagal membaca proyek.',true);}
   });
   $('new-project').addEventListener('click',async()=>{
@@ -615,12 +709,12 @@ function main() {
     if(drag||transform.dragging)return;
     const button=$('export-png');button.disabled=true;
     try {
-      const old=gizmo.visible;gizmo.visible=false;updateTies();renderer.render(scene,camera);
+      const old=gizmo.visible,oldOutline=selectionOutline.visible;gizmo.visible=false;selectionOutline.visible=false;updateTies();renderer.render(scene,camera);
       const output=document.createElement('canvas');output.width=canvas.width;output.height=canvas.height;const ctx=output.getContext('2d');if(!ctx)throw new Error('Tidak dapat membuat PNG.');ctx.drawImage(canvas,0,0);
       const scale=canvas.width/stage.clientWidth;ctx.scale(scale,scale);
       if(dimensionRoot.visible){positionDimensionLabels();for(const id of ['dimension-width','dimension-height']){const el=$(id);if(el.hidden)continue;const x=parseFloat(el.style.left),y=parseFloat(el.style.top);ctx.font='12px Consolas, monospace';const width=ctx.measureText(el.textContent).width+14;ctx.fillStyle='#f6f9f0';ctx.fillRect(x-width/2,y-10,width,20);ctx.strokeStyle='#bdcfb4';ctx.strokeRect(x-width/2,y-10,width,20);ctx.fillStyle='#3f6854';ctx.textAlign='center';ctx.fillText(el.textContent,x,y+4);}}
       ctx.font='11px Segoe UI, sans-serif';ctx.fillStyle='#748b69';ctx.textAlign='left';ctx.fillText('Contruction Builder (LED Rental)  /  Hollow 40 × 40 mm  /  Meter',18,stage.clientHeight-17);
-      gizmo.visible=old;dirty=true;
+      gizmo.visible=old;selectionOutline.visible=oldOutline;dirty=true;
       const blob=await new Promise(resolve=>output.toBlob(resolve,'image/png'));if(!blob)throw new Error('Ekspor PNG gagal.');download(blob,'led-frame-structure.png');toast('PNG tampilan 3D berhasil diekspor.');
     }catch(e){gizmo.visible=!!selected;dirty=true;toast(e.message,true);}finally{button.disabled=false;}
   });
@@ -641,6 +735,10 @@ function main() {
       document.querySelectorAll('.panel-open').forEach(el=>el.classList.remove('panel-open'));return;
     }
     if(drag||transform.dragging)return;
+    if(modifier&&event.key.toLowerCase()==='a'){event.preventDefault();selectAll();return;}
+    if(modifier&&event.key.toLowerCase()==='c'){event.preventDefault();copySelection();return;}
+    if(modifier&&event.key.toLowerCase()==='v'){event.preventDefault();pasteObjects();return;}
+    if(modifier&&event.key.toLowerCase()==='g'){event.preventDefault();if(event.shiftKey)ungroupSelection();else groupSelection();return;}
     if(modifier&&event.key.toLowerCase()==='d'){event.preventDefault();duplicate();return;}
     if(modifier&&event.key.toLowerCase()==='z'){event.preventDefault();restoreHistory(event.shiftKey?1:-1);return;}
     if(modifier&&event.key.toLowerCase()==='y'){event.preventDefault();restoreHistory(1);return;}
@@ -657,7 +755,7 @@ function main() {
     lastStageWidth=width;lastStageHeight=height;resize();if(changed)fitAll(true);
   }).observe(stage);window.addEventListener('resize',resize);
   const first=buildFrame({id:uid(),name:'Frame 01',type:'frame',shape:'rectangle',width:1,height:2,braceSpacingMm:0,position:[0,1,0],rotation:[0,0,0]});frameCounter=2;renderList();select(first);updatePalette();updateBraceSummary('add');applySettings();setView('iso');savedFrames=contentDigest();pushHistory();$('save-status').textContent='Contoh 1000 × 2000 mm · siap disusun';$('loading').hidden=true;
-  function render() {requestAnimationFrame(render);orbit.update();if(dirty){updateTies();renderer.render(scene,camera);positionDimensionLabels();dirty=false;}}
+  function render() {requestAnimationFrame(render);orbit.update();if(dirty){updateTies();updateSelectionOutline();renderer.render(scene,camera);positionDimensionLabels();dirty=false;}}
   render();
 }
 try{main();}catch(error){console.error(error);$('loading').hidden=false;$('loading').classList.add('error-loading');$('loading').textContent=`Area 3D gagal dimulai: ${error.message}. Pastikan app.bundle.js berada di folder yang sama dengan index.html, lalu muat ulang.`;}

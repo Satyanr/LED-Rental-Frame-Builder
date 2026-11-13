@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {HOLLOW, LED_DEPTH, LED_BEZEL, BALLAST_PRESETS, MAX_FRAMES, DEFAULT_SETTINGS, dimension, braceSpacing, braceOffsetsMm, frameMembers, ledMembers, objectMembers, objectSummary, frameSummary, validateBallastTemplate, validateTie, tubeAnchor, normalizeDegrees, snapValue, validateProject, makeProject} from '../src/project.js';
+import {HOLLOW, LED_DEPTH, LED_BEZEL, BALLAST_PRESETS, MAX_FRAMES, DEFAULT_SETTINGS, dimension, braceSpacing, braceOffsetsMm, frameMembers, ledMembers, objectMembers, objectSummary, frameSummary, validateBallastTemplate, validateTie, tubeAnchor, normalizeDegrees, snapValue, validateProject, makeProject, cloneObjects} from '../src/project.js';
 import * as THREE from 'three';
 import {memberGeometry, fitMeshesToDimensions, tieVisualPoints} from '../src/geometry.js';
 
@@ -273,4 +273,41 @@ test('tether starts at the upper rear of the container and follows both objects 
   assert.ok(Math.abs(rotated.end[0]+.026)<1e-12);assert.ok(Math.abs(rotated.end[2])<1e-12);
   const wider=tieVisualPoints({...source,tie:{...source.tie,t:1}},{...target,width:4});assert.ok(Math.abs(wider.end[0]-1.98)<1e-12);
   for(const points of [before,after,rotated,wider])assert.ok([...points.start,...points.end,...points.loop.flat()].every(Number.isFinite));
+});
+
+test('groups and every mixed object survive real JSON serialization without dropping ballast',()=>{
+  const objects=[{...frame(),groupId:'stage'},ballast('water-jerrycan',{groupId:'stage',tie:{targetId:'frame-01',memberIndex:0,t:.5}}),ballast('concrete-block',{groupId:'stage'})];
+  const p=validateProject(JSON.parse(JSON.stringify(makeProject(objects,DEFAULT_SETTINGS,null))));
+  assert.equal(p.frames.length,3);assert.equal(p.frames.filter(f=>f.type==='ballast').length,2);
+  assert.ok(p.frames.every(f=>f.groupId==='stage'));assert.equal(p.frames[2].depth,.3);
+});
+
+test('copying a mixed group remaps object and group IDs, retargets ties and unlocks copies',()=>{
+  const source=[{...frame(),groupId:'original',locked:true},ballast('water-jerrycan',{groupId:'original',locked:true,tie:{targetId:'frame-01',memberIndex:0,t:.75}}),ballast('concrete-block',{groupId:'original'})];
+  const original=JSON.stringify(source),copies=cloneObjects(source,source,[1,0,.15]);
+  assert.equal(JSON.stringify(source),original);assert.equal(copies.length,3);
+  assert.ok(copies.every(f=>!source.some(old=>old.id===f.id)&&!f.locked));
+  assert.ok(copies.every(f=>f.groupId===copies[0].groupId&&f.groupId!=='original'));
+  assert.equal(copies[1].tie.targetId,copies[0].id);assert.equal(copies[1].tie.t,.75);
+  assert.equal(copies[2].depth,.3);assert.deepEqual(copies[0].position,[1,1,.15]);
+});
+
+test('copying a single group member drops its partial group and preserves only valid external ties',()=>{
+  const target=frame(),source=ballast('water-jerrycan',{groupId:'group',tie:{targetId:target.id,memberIndex:0,t:.5}});
+  const inProject=cloneObjects([source],[target,source]);assert.equal(inProject[0].tie.targetId,target.id);assert.ok(!inProject[0].groupId);
+  const newProject=cloneObjects([source],[]);assert.ok(!newProject[0].tie);assert.ok(!newProject[0].groupId);
+});
+
+test('copy constraints and malformed group IDs are rejected before changing the project',()=>{
+  for(const groupId of ['',2,[],{}])assert.throws(()=>makeProject([{...frame(),groupId}],DEFAULT_SETTINGS,null));
+  const objects=[{...frame(),position:[0,1,500]}];const before=JSON.stringify(objects);
+  assert.throws(()=>cloneObjects(objects,objects));assert.equal(JSON.stringify(objects),before);
+  const full=Array.from({length:MAX_FRAMES},(_,i)=>({...frame(),id:String(i)}));assert.throws(()=>cloneObjects([frame()],full));
+});
+
+test('a saved ballast form does not create weight objects that are absent from JSON',()=>{
+  const p=makeProject([frame()],DEFAULT_SETTINGS,null,undefined,undefined,undefined,{kind:'water-jerrycan',width:.35,height:.5,depth:.25});
+  const restored=validateProject(JSON.parse(JSON.stringify(p)));
+  assert.equal(restored.frames.length,1);assert.equal(restored.frames.filter(f=>f.type==='ballast').length,0);
+  assert.equal(restored.ballastTemplate.kind,'water-jerrycan');
 });

@@ -1,6 +1,6 @@
 {
   "name": "contruction-builder-led-rental",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "type": "module",
   "description": "Offline 3D editor for LED rental frames, straight hollow tubes and custom LED screen cabinets",

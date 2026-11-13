@@ -1,3 +1,14 @@
+# Pembaruan 1.6 — Impor pemberat, copy/paste, pilihan, dan grup
+
+- Berkas JSON v1.4 yang dilaporkan diperiksa: `frames` berisi 20 frame dan 1 LED, tanpa objek pemberat. Pengaturan `ballastTemplate` tersimpan terpisah dari objek. Aplikasi kini menyebut jumlah pemberat pada hasil simpan/muat dan status bawah, termasuk pesan saat berkas berisi 0 pemberat.
+- Pemuatan menyiapkan seluruh objek/geometri sebelum mengganti proyek aktif; data invalid ditolak sebelum perubahan dan kegagalan pembuatan geometri membuang hasil sementara.
+- 38 pemeriksaan otomatis lolos. Tambahan pemeriksaan mencakup JSON grup campuran dengan kedua jenis pemberat, penyalinan ID grup/objek, tujuan tali yang menunjuk frame salinan, pelepasan tujuan yang tidak ada, batas penyalinan, dan perbedaan form pemberat dengan objek aktual.
+- Browser menguji berkas sintetis 20 frame + 1 LED tanpa pemberat, menambahkan satu jerigen dan satu balok, mengunduh JSON 23 objek, lalu memuatnya ke HTML mandiri offline. Kedua pemberat kembali muncul.
+- Ctrl+A/C/V/G/Shift+G/D, Ctrl/Shift+klik, Alt+klik anggota grup, penghapusan pilihan, Undo/Redo, dan penggunaan Ctrl+A di kolom teks lolos. Pilihan 5 objek campuran disalin menjadi 10 objek dengan 4 pemberat; grup salinan mendapat ID baru dan tali menunjuk frame salinan.
+- Seret grup langsung di viewport dan melalui gizmo X memindahkan semua anggotanya dengan delta yang sama. Input posisi dan putaran +90° mempertahankan jarak antaranggotanya. Undo/Redo memulihkan hasil transformasi.
+- Grup dan kedua pemberat tetap ada setelah simpan/muat ke HTML mandiri. Pilihan dengan sebagian anggota terkunci menonaktifkan transformasi sampai semua kunci dibuka. Copy jerigen ke proyek Baru melepaskan sambungan ke frame yang tidak ada.
+- Screenshot desktop dan panel objek pada 390 × 844 diperiksa. Kotak batas pilihan serta daftar anggota terlihat; tidak ada overflow horizontal atau error JavaScript pada pemeriksaan browser.
+
 # Pembaruan 1.5 — Tali pengikat dan kunci frame
 
 - 33 pemeriksaan otomatis lolos. Data tali memvalidasi ID tujuan, jenis frame/hollow, indeks batang, dan posisi 0–100%; sambungan rusak ditolak sebelum mengganti proyek. Status kunci dan tali tetap tersimpan setelah serialisasi JSON; proyek lama mendapat kunci nonaktif.
