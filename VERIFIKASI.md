@@ -1,3 +1,28 @@
+# Pembaruan 1.8 — Rigging per batang dan kain fleksibel
+
+- Rigging baru menjadi **satu batang truss berpenampang kotak 290 × 290 mm per objek**, dengan panjang 100–50.000 mm seperti hollow lurus. Properti menampilkan satu kolom panjang. Posisi, rotasi, duplikat, grup, ukuran luar, dan pengelompokan material per panjang diperiksa. Rigging keliling dari JSON v1.7 tetap memakai geometri aslinya; form baru selalu membuat batang.
+- Tab Aksesoris LED menambah **Kain penutup** dengan ukuran dasar, warna, gelombang/lendutan, serta empat titik sudut XYZ yang bisa berubah sendiri. Mesh dua sisi mengikuti sudut-sudut tersebut. Titik kontrol berwarna tampil saat mode Edit sudut di 3D aktif, mengikuti zoom kamera, dan tidak masuk PNG.
+- **50 tes otomatis lolos** melalui `npm test`: geometri dan penampang rigging, kompatibilitas rigging lama, validasi sudut/pin/warna kain, mesh tanpa nilai nonfinite, kontak sudut pada permukaan hollow setelah transformasi, JSON, serta penyalinan semua tujuan kain.
+- `tests/cloth-browser.mjs` lolos pada Chrome headless offline: pembuatan kain, warna dan gelombang, perubahan sudut numerik, input yang belum blur saat simpan, seret titik 3D, dan Esc untuk membatalkan seret.
+- Pemasangan sudut lewat dropdown maupun klik 3D yang menembus kain ke hollow terkunci berhasil. Sudut bisa memakai batang berbeda serta sisi depan/belakang. Hollow yang digeser/diputar/diubah ukuran mengubah sudut kain yang terkait; titik bebas tetap bisa disesuaikan. Melepas sudut, menghapus hollow atau batang tengah, dan Undo/Redo diperiksa.
+- Menyalin grup berisi kain dan targetnya memetakan ulang semua ID sambungan. Grup salinan dapat dipindah/diputar bersama. Seluruh bentuk, warna, gelombang, template, dan pin tetap ada setelah simpan/muat JSON pada HTML mandiri offline. Impor dengan tujuan sudut hilang ditolak tanpa mengganti objek aktif.
+- Pengujian browser sebelumnya untuk roda, tali jerigen, kunci, LED, pemberat, multi-select, grup, dan copy/paste tetap lolos. Screenshot desktop dan panel kain pada 390 × 844 diperiksa; tidak ada overflow horizontal, error JavaScript, atau permintaan jaringan aplikasi. Ekspor PNG aktual berhasil.
+- `contoh-frame-dan-aksesoris.json` diperbarui; `contoh-rigging-batang-dan-kain.json` ditambahkan. Keduanya berisi delapan objek: frame, dua roda, tiga batang rigging, jerigen, dan kain dengan empat sudut menempel. Build memperbarui bundle/HTML mandiri; paket distribusi bernama `LED-Rental-Frame-Builder-v1.8.zip`.
+- Pengujian memakai browser desktop dan ukuran viewport ponsel yang disimulasikan; perangkat sentuh fisik serta performa pada batas 300 objek belum diukur.
+
+# Pembaruan 1.7 — Aksesoris LED, roda menempel, dan rigging kotak
+
+- Tab Pemberat berganti nama menjadi **Aksesoris LED**, dengan pilihan Pemberat, Roda caster, dan Rigging kotak. Kedua jenis pemberat dan tali jerigen tetap berfungsi.
+- **43 pemeriksaan otomatis lolos** melalui `npm test`. Tambahan mencakup validasi objek dan form roda/rigging, kontak pelat roda pada setiap jenis batang dengan rotasi arbitrer, batas luar model sesuai dimensi, pusat rigging tetap terbuka, serta ID tujuan dudukan saat copy/paste.
+- `tests/accessories-browser.mjs` lolos pada Chrome headless dengan jaringan offline: tambah roda, ukuran custom, pemasangan lewat daftar dan klik hollow, tujuan terkunci, posisi sepanjang batang, perpindahan/rotasi/perubahan ukuran tujuan, hollow tengah, dan hollow lurus.
+- Pelepasan dudukan, penghapusan tujuan atau batang tengah, Undo/Redo, penyalinan frame bersama roda, dan perpindahan pilihan bersama lolos. Transformasi roda sendiri dinonaktifkan selama menempel.
+- Rigging kotak custom 3200 × 2400 mm dapat ditambahkan dan diubah melalui properti, termasuk input yang belum kehilangan fokus saat simpan. Nilai di bawah 600 mm ditolak dan ukuran sebelumnya dipertahankan.
+- Kedua kartu baru berhasil di-drag/drop ke lantai dan modelnya dapat dipilih dengan klik di viewport. Roda memiliki ban, hub, poros, garpu, dan pelat atas; rigging memiliki penampang truss kotak 290 × 290 mm serta batang diagonal. Geometri tiap rigging digabung menjadi satu mesh.
+- Unduhan JSON aktual dimuat ke HTML mandiri offline; roda, rigging, sambungan, ukuran form, dan pilihan aksesoris kembali sama. Impor dengan tujuan dudukan hilang ditolak tanpa mengubah proyek. JSON pemberat versi lama tetap berhasil dibuka.
+- `tests/attachments-browser.mjs`, `tests/browser-smoke.mjs`, dan `tests/selection-browser.mjs` lolos untuk tali/kunci, pemberat, multi-select, grup, dan salin/tempel.
+- Screenshot desktop, detail roda, serta panel pada viewport 390 × 844 diperiksa. Tidak ada overflow horizontal. Ekspor PNG berhasil, tanpa error JavaScript maupun permintaan jaringan aplikasi.
+- Build memperbarui `app.bundle.js` serta `Contruction-Builder-LED-Rental.html`. Contoh `contoh-frame-dan-aksesoris.json` dan paket `LED-Rental-Frame-Builder-v1.7.zip` disertakan. Pengujian browser dilakukan dengan protokol `file://` di Chrome; perangkat fisik dan performa pada batas 300 objek belum diuji.
+
 # Pembaruan 1.6 — Impor pemberat, copy/paste, pilihan, dan grup
 
 - Berkas JSON v1.4 yang dilaporkan diperiksa: `frames` berisi 20 frame dan 1 LED, tanpa objek pemberat. Pengaturan `ballastTemplate` tersimpan terpisah dari objek. Aplikasi kini menyebut jumlah pemberat pada hasil simpan/muat dan status bawah, termasuk pesan saat berkas berisi 0 pemberat.

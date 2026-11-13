@@ -1,6 +1,48 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import {HOLLOW, tubeAnchor} from './project.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import {HOLLOW, tubeAnchor, validateCloth} from './project.js';
+
+const objectMatrix = data => new THREE.Matrix4().compose(new THREE.Vector3(...data.position),new THREE.Quaternion().setFromEuler(new THREE.Euler(...data.rotation.map(THREE.MathUtils.degToRad),'XYZ')),new THREE.Vector3(1,1,1));
+export function clothPinnedCorners(source,byId) {
+  const {clothCorners,clothPins}=validateCloth(source),inverse=objectMatrix(source).invert();
+  return clothCorners.map((corner,i)=>{
+    const pin=clothPins[i];if(!pin)return corner;
+    const target=byId.get(pin.targetId);if(!target)return corner;
+    const anchor=tubeAnchor(target,pin),point=new THREE.Vector3(...anchor.position);
+    point.z+=(HOLLOW/2+.003)*pin.side;
+    return point.applyMatrix4(objectMatrix(target)).applyMatrix4(inverse).toArray();
+  });
+}
+export function clothSurfacePoint(data,u,v) {
+  const [tl,tr,br,bl]=data.clothCorners.map(p=>new THREE.Vector3(...p));
+  const top=tl.clone().lerp(tr,u),bottom=bl.clone().lerp(br,u),point=top.clone().lerp(bottom,v);
+  const normal=new THREE.Vector3().crossVectors(bl.clone().sub(tl),tr.clone().sub(tl)).normalize();
+  if(normal.lengthSq()<1e-12)normal.set(0,0,1);
+  const envelope=Math.sin(Math.PI*u)*Math.sin(Math.PI*v),sag=data.clothSag??0;
+  point.addScaledVector(normal,sag*envelope*(.5+.5*Math.sin(6*Math.PI*u)));point.y-=sag*.25*envelope;
+  return point;
+}
+export function clothGeometry(data) {
+  const geometry=new THREE.PlaneGeometry(1,1,24,24),position=geometry.attributes.position;
+  for(let y=0;y<=24;y++)for(let x=0;x<=24;x++)position.setXYZ(y*25+x,...clothSurfacePoint(data,x/24,y/24).toArray());
+  position.needsUpdate=true;geometry.computeVertexNormals();geometry.computeBoundingBox();geometry.computeBoundingSphere();return geometry;
+}
+
+export function wheelMountPose(source,target) {
+  const {axis,position}=tubeAnchor(target,source.mount);
+  const targetRotation=new THREE.Quaternion().setFromEuler(new THREE.Euler(...target.rotation.map(THREE.MathUtils.degToRad),'XYZ'));
+  const localRotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),axis===0?0:-Math.PI/2);
+  const local=new THREE.Vector3(...position).add(new THREE.Vector3(0,-(HOLLOW+source.height)/2,0).applyQuaternion(localRotation));
+  const world=local.applyQuaternion(targetRotation).add(new THREE.Vector3(...target.position));
+  const rotation=new THREE.Euler().setFromQuaternion(targetRotation.multiply(localRotation),'XYZ');
+  return {position:world.toArray(),rotation:[rotation.x,rotation.y,rotation.z].map(THREE.MathUtils.radToDeg)};
+}
+
+export function mergedMemberGeometry(members) {
+  const geometries=members.map(member=>memberGeometry(member).translate(...(member.position??[0,0,0])));
+  try{return mergeGeometries(geometries,false);}finally{geometries.forEach(g=>g.dispose());}
+}
 
 export function tieVisualPoints(source,target) {
   const {axis,position}=tubeAnchor(target,source.tie);
@@ -18,6 +60,14 @@ export function tieVisualPoints(source,target) {
 
 // Geometry stays inside each member's supplied dimensions, including the rope.
 export function memberGeometry(member) {
+  if(member.geometry==='cloth')return clothGeometry(member);
+  if(member.geometry==='strut'){
+    const start=new THREE.Vector3(...member.start),end=new THREE.Vector3(...member.end),direction=end.clone().sub(start);
+    const geometry=new THREE.CylinderGeometry(member.radius,member.radius,direction.length(),8);
+    geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize()));
+    return geometry.translate(...start.add(end).multiplyScalar(.5).toArray());
+  }
+  if(member.geometry==='wheel')return new THREE.CylinderGeometry(.5,.5,1,32).rotateX(Math.PI/2).scale(...member.size);
   if(member.geometry==='rope'){
     const path=new THREE.CurvePath(),points=member.points.map(p=>new THREE.Vector3(...p));
     if(points.every(p=>p.distanceToSquared(points[0])<1e-14))return new THREE.SphereGeometry(member.radius,8,6).translate(...member.points[0]);

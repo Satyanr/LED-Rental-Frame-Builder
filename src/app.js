@@ -3,6 +3,10 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { HOLLOW, BALLAST_PRESETS, MAX_FRAMES, MAX_PROJECT_BRACES, LIMIT_POSITION, DEFAULT_SETTINGS, uid, dimension, braceSpacing, braceOffsetsMm, objectMembers, objectSummary, objectLabel, isBallast, isJerrycan, isTubeTarget, validateTie, tubeAnchor, validateBallastTemplate, validateFrameTemplate, validateLedTemplate, numeric, normalizeDegrees, snapValue, validateProject, makeProject, cloneObjects } from './project.js';
 import { memberGeometry, fitMeshesToDimensions, concreteTexture, tieVisualPoints } from './geometry.js';
+import { isWheel, hasDepth, isCustomGeometry, RIGGING_DEPTH, validateWheelTemplate, validateRiggingTemplate } from './project.js';
+import { wheelMountPose, mergedMemberGeometry } from './geometry.js';
+import { isCloth, isRiggingSegment, validateCloth, validateClothPin, validateClothTemplate, defaultClothCorners } from './project.js';
+import { clothGeometry, clothPinnedCorners } from './geometry.js';
 
 const $ = id => document.getElementById(id);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -51,12 +55,16 @@ function main() {
   const objects=new Map();let selected=null;let settings={...DEFAULT_SETTINGS};let lastSummary='';
   const selection=new Set(),selectionProxy=new THREE.Object3D();scene.add(selectionProxy);
   const selectionBounds=new THREE.Box3(),selectionOutline=new THREE.Box3Helper(selectionBounds,0x69964f);scene.add(selectionOutline);selectionOutline.visible=false;
+  const clothHandles=new THREE.Group();scene.add(clothHandles);clothHandles.visible=false;
+  const handleGeometry=new THREE.SphereGeometry(1,12,8);
+  for(let i=0;i<4;i++){const mesh=new THREE.Mesh(handleGeometry,new THREE.MeshBasicMaterial({color:0x4d9467,depthTest:false}));mesh.userData.corner=i;mesh.renderOrder=10;clothHandles.add(mesh);}
+  let clothEditing=false,clothCorner=0,clothPickingCorner=null,clothPickingSide=1;
   let proxyMatrix=new THREE.Matrix4(),clipboard=[],pasteCount=0;
   let currentView='iso', orthoSpan=5.5, dirty=true, projectDirty=false, savedFrames='', frameCounter=1;
   let mode='translate', drag=null, gizmoGesture=false, ignoreNextGizmoCommit=false;
   let histories=[], historyIndex=-1;
   let tiePicking=null;
-  let paletteType='frame', frameShape='rectangle';
+  let paletteType='frame', frameShape='rectangle', accessoryKind='ballast';
   const perspective=new THREE.PerspectiveCamera(40,1,0.01,15000);
   const orthographic=new THREE.OrthographicCamera(-3,3,3,-3,0.01,15000);
   let camera=perspective; camera.position.set(4.5,3.5,6);
@@ -82,14 +90,16 @@ function main() {
   // Exterior envelopes represent the perimeter tubes and optional horizontal braces.
   // All members belong to the same frame group; the openings remain empty.
   function buildFrame(data,register=true) {
-    const group=new THREE.Group();group.userData.frame={...data,position:[...data.position],rotation:[...data.rotation]};
-    const isLed=data.type==='led',ballast=isBallast(data),concrete=ballast&&data.ballastKind==='concrete-block';
-    const baseColor=ballast?(concrete?0xa4a397:0x267ca1):isLed?0x202b35:0x8faaa0;
+    const group=new THREE.Group();group.userData.frame={...data,...(isCloth(data)?validateCloth(data):{}),position:[...data.position],rotation:[...data.rotation]};
+    const isLed=data.type==='led',ballast=isBallast(data),concrete=ballast&&data.ballastKind==='concrete-block',metalAccessory=isWheel(data)||data.type==='rigging';
+    const baseColor=isCloth(data)?group.userData.frame.clothColor:metalAccessory?0xb5bdc4:ballast?(concrete?0xa4a397:0x267ca1):isLed?0x202b35:0x8faaa0;
     const mat=new THREE.MeshStandardMaterial({color:baseColor,metalness:ballast?0:.45,roughness:ballast?(concrete?1:.65):.36});
     const edgeMat=new THREE.LineBasicMaterial({color:ballast?0x66675d:isLed?0x718594:0x587466,transparent:true,opacity:isLed ? .9 : .66});
     group.userData.baseColor=baseColor;
     group.userData.material=mat;group.userData.edgeMaterial=edgeMat;
+    if(isCloth(data)){mat.side=THREE.DoubleSide;mat.metalness=0;mat.roughness=1;}
     if(isLed)group.userData.screenMaterial=new THREE.MeshBasicMaterial({color:0x203c55});
+    if(metalAccessory){mat.metalness=.72;mat.roughness=.32;group.userData.detailMaterials={rubber:new THREE.MeshStandardMaterial({color:0x242a2e,roughness:.9}),hub:new THREE.MeshStandardMaterial({color:0x828d98,metalness:.65,roughness:.35})};}
     if(ballast){
       group.userData.detailMaterials={rope:new THREE.MeshStandardMaterial({color:0xd2b57d,roughness:1}),cap:new THREE.MeshStandardMaterial({color:0x153d52,roughness:.8}),rib:new THREE.MeshStandardMaterial({color:0x246c8a,roughness:.7})};
       if(concrete)mat.map=concreteTexture();
@@ -103,17 +113,32 @@ function main() {
   function clearBallastMeshes(group) {
     for(const mesh of [...group.children]){mesh.geometry.dispose();group.remove(mesh);}
   }
+  function updateClothMesh(group) {
+    const f=group.userData.frame,signature=JSON.stringify([f.clothCorners,f.clothSag]);
+    if(signature!==group.userData.clothSignature){
+      const geometry=clothGeometry(f);clearBallastMeshes(group);const mesh=new THREE.Mesh(geometry,group.userData.material);mesh.name='beam';mesh.userData.frameRoot=group;group.add(mesh);group.userData.clothSignature=signature;
+    }
+    group.userData.baseColor=f.clothColor;group.userData.material.color.set(f.clothColor);dirty=true;
+  }
   function resizeFrame(group,w,h,spacingMm=group.userData.frame.braceSpacingMm??0,depth=group.userData.frame.depth) {
     const f=group.userData.frame;
+    if(isCloth(f)){
+      dimension(w,'Lebar kain');dimension(h,'Tinggi kain');
+      const corners=f.clothCorners.map(p=>[p[0]*w/f.width,p[1]*h/f.height,p[2]]),next=validateCloth({...f,width:w,height:h,clothCorners:corners});
+      Object.assign(f,next,{width:w,height:h});updateClothMesh(group);return;
+    }
     const members=objectMembers({...f,width:w,height:h,braceSpacingMm:spacingMm,depth});
-    if(isBallast(f)){
+    if(isCustomGeometry(f)){
       clearBallastMeshes(group);
-      for(const member of members){
+      if(f.type==='rigging'){
+        const mesh=new THREE.Mesh(mergedMemberGeometry(members),group.userData.material);
+        mesh.userData.frameRoot=group;mesh.name='beam';group.add(mesh);
+      }else for(const member of members){
         const mesh=new THREE.Mesh(memberGeometry(member),group.userData.detailMaterials[member.surface]??group.userData.material);
         mesh.position.fromArray(member.position??[0,0,0]);mesh.userData.frameRoot=group;mesh.name='beam';group.add(mesh);
       }
-      fitMeshesToDimensions(group.children,[w,h,depth]);
-      f.width=w;f.height=h;f.depth=depth;f.braceSpacingMm=0;dirty=true;return;
+      fitMeshesToDimensions(group.children,[w,h,f.type==='rigging'?RIGGING_DEPTH:depth]);
+      f.width=w;f.height=h;if(hasDepth(f))f.depth=depth;f.braceSpacingMm=0;dirty=true;return;
     }
     while(group.children.length>members.length)group.remove(group.children[group.children.length-1]);
     while(group.children.length<members.length){
@@ -125,15 +150,27 @@ function main() {
     if(!f.type||f.type==='frame'){f.type='frame';f.shape=w===h?'square':'rectangle';}
     dirty=true;
   }
-  function disposeFrame(group) {framesRoot.remove(group);if(isBallast(group.userData.frame))clearBallastMeshes(group);group.userData.material.map?.dispose();group.userData.material.dispose();group.userData.edgeMaterial.dispose();group.userData.screenMaterial?.dispose();Object.values(group.userData.detailMaterials??{}).forEach(m=>m.dispose());}
+  function disposeFrame(group) {framesRoot.remove(group);if(isCustomGeometry(group.userData.frame))clearBallastMeshes(group);group.userData.material.map?.dispose();group.userData.material.dispose();group.userData.edgeMaterial.dispose();group.userData.screenMaterial?.dispose();Object.values(group.userData.detailMaterials??{}).forEach(m=>m.dispose());}
   function frameData(group) {
     const f=group.userData.frame;
-    return {id:f.id,name:f.name,type:f.type??'frame',locked:f.locked??false,...(f.groupId?{groupId:f.groupId}:{}),...(f.tie?{tie:{...f.tie}}:{}),...(f.type==='frame'?{shape:f.shape}:{}),...(isBallast(f)?{ballastKind:f.ballastKind,depth:f.depth}:{}),width:f.width,height:f.height,braceSpacingMm:f.braceSpacingMm??0,position:group.position.toArray().map(round),rotation:[group.rotation.x,group.rotation.y,group.rotation.z].map(v=>round(normalizeDegrees(THREE.MathUtils.radToDeg(v))))};
+    return {id:f.id,name:f.name,type:f.type??'frame',locked:f.locked??false,...(f.groupId?{groupId:f.groupId}:{}),...(f.tie?{tie:{...f.tie}}:{}),...(f.mount?{mount:{...f.mount}}:{}),...(f.type==='frame'?{shape:f.shape}:{}),...(f.type==='rigging'?{riggingKind:isRiggingSegment(f)?'segment':'legacy-frame'}:{}),...(isCloth(f)?validateCloth(f):{}),...(hasDepth(f)?{depth:f.depth}:{}),...(isBallast(f)?{ballastKind:f.ballastKind}:{}),width:f.width,height:f.height,braceSpacingMm:f.braceSpacingMm??0,position:group.position.toArray().map(round),rotation:[group.rotation.x,group.rotation.y,group.rotation.z].map(v=>round(normalizeDegrees(THREE.MathUtils.radToDeg(v))))};
   }
   function allFrames() {return [...objects.values()].map(frameData);}
-  function syncSelected() {for(const group of selection){group.userData.frame=frameData(group);updateListItem(group);}}
+  function syncMountedWheels() {
+    for(const group of objects.values()){
+      const f=group.userData.frame,target=objects.get(f.mount?.targetId);if(!isWheel(f)||!target)continue;
+      try{const pose=wheelMountPose(f,frameData(target));group.position.fromArray(pose.position);group.rotation.set(...pose.rotation.map(THREE.MathUtils.degToRad),'XYZ');group.userData.frame=frameData(group);}catch{delete f.mount;}
+    }
+  }
+  function syncCloths() {
+    const data=new Map([...objects.values()].filter(g=>isTubeTarget(g.userData.frame)).map(g=>[g.userData.frame.id,frameData(g)]));
+    for(const group of objects.values())if(isCloth(group.userData.frame)){
+      const f=group.userData.frame;f.clothCorners=clothPinnedCorners(frameData(group),data);updateClothMesh(group);
+    }
+  }
+  function syncSelected() {syncMountedWheels();syncCloths();for(const group of selection){group.userData.frame=frameData(group);updateListItem(group);}}
   const transformTarget=()=>selection.size>1?selectionProxy:selected;
-  const selectionLocked=()=>[...selection].some(g=>g.userData.frame.locked);
+  const selectionLocked=()=>[...selection].some(g=>g.userData.frame.locked||(g.userData.frame.mount&&!selection.has(objects.get(g.userData.frame.mount.targetId))));
   function resetProxy() {
     const box=new THREE.Box3();for(const g of selection){g.updateMatrixWorld(true);box.union(new THREE.Box3().setFromObject(g));}
     if(!box.isEmpty())selectionProxy.position.copy(box.getCenter(new THREE.Vector3()));
@@ -161,6 +198,16 @@ function main() {
       const target=objects.get(f.tie.targetId);
       try{if(!target)throw new Error();tubeAnchor(target.userData.frame,f.tie);}catch{delete f.tie;}
     }
+    for(const group of objects.values()){
+      const f=group.userData.frame;if(!f.mount)continue;
+      try{const target=objects.get(f.mount.targetId);if(!target)throw new Error();tubeAnchor(target.userData.frame,f.mount);}catch{delete f.mount;}
+    }
+    for(const group of objects.values())if(isCloth(group.userData.frame)){
+      const f=group.userData.frame;f.clothPins=f.clothPins.map(pin=>{
+        if(!pin)return null;try{const target=objects.get(pin.targetId);if(!target)throw new Error();tubeAnchor(target.userData.frame,pin);return pin;}catch{return null;}
+      });
+    }
+    syncMountedWheels();syncCloths();
   }
   function removeTieMesh(id) {
     const entry=tieMeshes.get(id);if(!entry)return;
@@ -178,10 +225,13 @@ function main() {
     }
     for(const id of tieMeshes.keys())if(!active.has(id))removeTieMesh(id);
   }
-  function setTiePicking(sourceId=null) {
+  function setTiePicking(sourceId=null,corner=null) {
+    if(sourceId&&corner!==null)clothPickingSide=Number($('cloth-pin-side').value);
+    clothPickingCorner=sourceId?corner:null;
     tiePicking=sourceId;$('tie-pick-banner').hidden=!sourceId;canvas.style.cursor=sourceId?'crosshair':'';
     if(sourceId){transform.detach();document.querySelectorAll('.panel-open').forEach(el=>el.classList.remove('panel-open'));}
-    syncLockControls();syncTieControls();dirty=true;
+    $('tie-pick-banner').querySelector('span').textContent=corner!==null&&sourceId?`Klik hollow untuk sudut kain ${corner+1}. Esc untuk batal.`:sourceId&&isWheel(objects.get(sourceId)?.userData.frame??{})?'Klik batang hollow untuk dudukan roda. Esc untuk batal.':'Klik batang hollow tujuan tali. Esc untuk batal.';
+    syncLockControls();syncTieControls();syncClothControls();dirty=true;
   }
   function memberLabel(target,index) {
     if(target.type==='hollow')return 'Batang hollow lurus';
@@ -192,32 +242,70 @@ function main() {
     select.value=String(value);
   }
   function syncTieControls() {
-    const source=selected?frameData(selected):null,visible=selection.size===1&&!!source&&isJerrycan(source);$('tie-controls').hidden=!visible;if(!visible)return;
+    const source=selected?frameData(selected):null,visible=selection.size===1&&!!source&&(isJerrycan(source)||isWheel(source));$('tie-controls').hidden=!visible;if(!visible)return;
+    const wheel=isWheel(source),connection=wheel?source.mount:source.tie;
+    $('connection-title').textContent=wheel?'Dudukan roda ke hollow':'Tali pengikat jerigen';$('connection-location').textContent=wheel?'pelat atas':'atas belakang';
+    $('connection-member-label').textContent=wheel?'Batang tempat menempel':'Batang tempat ikat';
+    $('tie-detach').textContent=wheel?'Lepaskan roda dari hollow':'Lepaskan tali dari hollow';
     const targets=[...objects.values()].filter(g=>isTubeTarget(g.userData.frame));
-    fillOptions($('tie-target'),[['','Belum diikat'],...targets.map(g=>[g.userData.frame.id,g.userData.frame.name])],source.tie?.targetId??'');
-    const target=objects.get(source.tie?.targetId)?.userData.frame;
-    fillOptions($('tie-member'),target?objectMembers(target).map((_,i)=>[String(i),memberLabel(target,i)]):[['','Pilih frame / hollow tujuan']],source.tie?.memberIndex??'');
+    fillOptions($('tie-target'),[['',wheel?'Belum menempel':'Belum diikat'],...targets.map(g=>[g.userData.frame.id,g.userData.frame.name])],connection?.targetId??'');
+    const target=objects.get(connection?.targetId)?.userData.frame;
+    fillOptions($('tie-member'),target?objectMembers(target).map((_,i)=>[String(i),memberLabel(target,i)]):[['','Pilih frame / hollow tujuan']],connection?.memberIndex??'');
     $('tie-member').disabled=!target;$('tie-position').disabled=!target;
-    if(document.activeElement!==$('tie-position'))$('tie-position').value=String(round((source.tie?.t??.5)*100));
+    if(document.activeElement!==$('tie-position'))$('tie-position').value=String(round((connection?.t??.5)*100));
     $('tie-detach').disabled=!target;$('tie-pick').disabled=!targets.length;$('tie-pick').setAttribute('aria-pressed',String(!!tiePicking));
-    const points=target?tieVisualPoints(source,frameData(objects.get(target.id))):null;
-    $('tie-status').textContent=target?`Terikat ke ${target.name}. Panjang ${fmt(new THREE.Vector3(...points.start).distanceTo(new THREE.Vector3(...points.end)))} m.`:targets.length?'Pilih hollow tujuan. Tali mengikuti perpindahan jerigen dan hollow.':'Tambahkan frame atau hollow lurus sebagai tujuan tali.';
+    const points=target&&!wheel?tieVisualPoints(source,frameData(objects.get(target.id))):null;
+    $('tie-status').textContent=wheel?(target?`Menempel ke ${target.name}. Dudukan mengikuti posisi, rotasi, dan ukuran hollow. Lepaskan untuk menggeser roda sendiri.`:'Pilih hollow tujuan untuk menempelkan pelat atas roda.'):
+      target?`Terikat ke ${target.name}. Panjang ${fmt(new THREE.Vector3(...points.start).distanceTo(new THREE.Vector3(...points.end)))} m.`:targets.length?'Pilih hollow tujuan. Tali mengikuti perpindahan jerigen dan hollow.':'Tambahkan frame atau hollow lurus sebagai tujuan tali.';
   }
   function attachTie(targetId,memberIndex=0,t=.5) {
-    applySelectedChange(()=>{const f=selected.userData.frame;if(!isJerrycan(f))return;const tie=validateTie({targetId,memberIndex,t});const target=objects.get(targetId);if(!target)throw new Error('Tujuan tali tidak tersedia.');tubeAnchor(target.userData.frame,tie);f.tie=tie;});
+    applySelectedChange(()=>{const f=selected.userData.frame;if(!isJerrycan(f)&&!isWheel(f))return;const tie=validateTie({targetId,memberIndex,t});const target=objects.get(targetId);if(!target)throw new Error('Tujuan hollow tidak tersedia.');tubeAnchor(target.userData.frame,tie);if(isWheel(f))f.mount=tie;else f.tie=tie;});
+  }
+  function syncClothControls() {
+    const f=selected?.userData.frame,visible=selection.size===1&&!!f&&isCloth(f);$('cloth-controls').hidden=!visible;
+    if(!visible){clothHandles.visible=false;return;}
+    const pin=f.clothPins[clothCorner],targets=[...objects.values()].filter(g=>isTubeTarget(g.userData.frame)),target=objects.get(pin?.targetId)?.userData.frame;
+    $('cloth-corner').value=String(clothCorner);
+    const values={'cloth-color':f.clothColor,'cloth-sag':round(f.clothSag*1000),'cloth-pin-t':round((pin?.t??.5)*100),'cloth-pin-side':String(pin?.side??1)};
+    for(const [i,axis] of ['x','y','z'].entries()){values[`cloth-point-${axis}`]=round(f.clothCorners[clothCorner][i]);$(`cloth-point-${axis}`).disabled=!!pin;}
+    for(const [id,value] of Object.entries(values))if(document.activeElement!==$(id))$(id).value=String(value);
+    fillOptions($('cloth-pin-target'),[['','Sudut bebas'],...targets.map(g=>[g.userData.frame.id,g.userData.frame.name])],pin?.targetId??'');
+    fillOptions($('cloth-pin-member'),target?objectMembers(target).map((_,i)=>[String(i),memberLabel(target,i)]):[['','Pilih hollow tujuan']],pin?.memberIndex??'');
+    $('cloth-pin-member').disabled=!target;$('cloth-pin-t').disabled=!target;$('cloth-pin-detach').disabled=!pin;$('cloth-pin-pick').disabled=!targets.length;
+    $('cloth-detach-all').disabled=!f.clothPins.some(Boolean);$('cloth-edit-corners').setAttribute('aria-pressed',String(clothEditing));
+    $('cloth-pin-pick').setAttribute('aria-pressed',String(clothPickingCorner!==null&&!!tiePicking));
+    $('cloth-pin-status').textContent=target?`Sudut ${clothCorner+1} menempel ke ${target.name}. Titik mengikuti hollow; lepaskan untuk mengatur XYZ sendiri.`:`Sudut ${clothCorner+1} bebas. Atur XYZ lokal atau aktifkan Edit sudut di 3D dan seret titiknya.`;
+  }
+  function attachClothPin(targetId,memberIndex=0,t=.5,corner=clothCorner,side=Number($('cloth-pin-side').value)) {
+    applySelectedChange(()=>{
+      const f=selected.userData.frame;if(!isCloth(f))return;
+      const pin=validateClothPin({targetId,memberIndex,t,side}),target=objects.get(targetId);
+      if(!target)throw new Error('Tujuan sudut kain tidak tersedia.');tubeAnchor(target.userData.frame,pin);f.clothPins[corner]=pin;
+    });
+  }
+  function updateClothHandles() {
+    clothHandles.visible=clothEditing&&selection.size===1&&!!selected&&isCloth(selected.userData.frame)&&!tiePicking;
+    if(!clothHandles.visible)return;selected.updateMatrixWorld(true);
+    for(const [i,handle] of clothHandles.children.entries()){
+      handle.position.copy(selected.localToWorld(new THREE.Vector3(...selected.userData.frame.clothCorners[i])));
+      const size=camera.isOrthographicCamera?orthoSpan/camera.zoom:2*camera.position.distanceTo(handle.position)*Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
+      handle.scale.setScalar(Math.max(.002,size/Math.max(stage.clientHeight,1)*8));
+      handle.material.color.setHex(selected.userData.frame.clothPins[i]?0xd5a446:i===clothCorner?0x287ec4:0x4b9e65);
+    }
+    clothHandles.updateMatrixWorld(true);
   }
   function syncLockControls() {
     const locked=selectionLocked(),allLocked=selection.size>0&&[...selection].every(g=>g.userData.frame.locked);$('object-locked').checked=allLocked;$('object-locked').indeterminate=locked&&!allLocked;
-    $('lock-hint').textContent=locked?'Terkunci. Buka semua kunci pilihan untuk menggeser atau memutar.':'Aktifkan setelah posisi dan rotasi sudah sesuai.';
+    $('lock-hint').textContent=selected?.userData.frame.mount?'Roda mengikuti hollow. Lepaskan dudukan untuk menggeser atau memutar roda sendiri.':locked?'Terkunci. Buka semua kunci pilihan untuk menggeser atau memutar.':'Aktifkan setelah posisi dan rotasi sudah sesuai.';
     for(const el of $$('[id^="position-"],[id^="rotation-"],[data-rotate],#ground-frame'))el.disabled=locked;
-    transform.enabled=!locked&&!tiePicking;
-    const target=transformTarget();if(target&&!locked&&!tiePicking){if(transform.object!==target)transform.attach(target);}else if(transform.object)transform.detach();
+    transform.enabled=!locked&&!tiePicking&&!clothEditing;
+    const target=transformTarget();if(target&&!locked&&!tiePicking&&!clothEditing){if(transform.object!==target)transform.attach(target);}else if(transform.object)transform.detach();
     if(selected)$('status-text').textContent=`${selection.size>1?selection.size+' objek terpilih':selected.userData.frame.name}${locked?' · terkunci':''}`;
   }
   const gridRoot=new THREE.Group();scene.add(gridRoot);let gridSize=0;
   function updateGrid() {
     let extent=10;
-    for(const g of objects.values()){const f=g.userData.frame;extent=Math.max(extent,Math.abs(g.position.x)+Math.max(f.width,f.height,f.depth??0),Math.abs(g.position.z)+Math.max(f.width,f.height,f.depth??0));}
+    for(const g of objects.values()){const f=g.userData.frame;extent=Math.max(extent,Math.abs(g.position.x)+Math.max(f.width,f.height,f.depth??0),Math.abs(g.position.z)+Math.max(f.width,f.height,f.depth??0));if(isCloth(f)){g.updateMatrixWorld(true);const bounds=new THREE.Box3().setFromObject(g);extent=Math.max(extent,Math.abs(bounds.min.x),Math.abs(bounds.max.x),Math.abs(bounds.min.z),Math.abs(bounds.max.z));}}
     const size=Math.min(1200,Math.ceil(extent/10)*20);
     if(size===gridSize)return;
     for(const g of [...gridRoot.children]){gridRoot.remove(g);g.geometry.dispose();if(Array.isArray(g.material))g.material.forEach(m=>m.dispose());else g.material.dispose();}
@@ -235,14 +323,16 @@ function main() {
     const visible=selection.size===1&&!!selected&&settings.dimensions;dimensionRoot.visible=visible;
     $('dimension-width').hidden=!visible;$('dimension-height').hidden=!visible;
     if(!visible)return;
-    const {width:w,height:h}=selected.userData.frame;const gap=Math.max(.15,Math.min(w,h)*.09),tick=gap*.18;
+    let {width:w,height:h}=selected.userData.frame;const center=new THREE.Vector3();
+    if(isCloth(selected.userData.frame)){const bounds=selected.children[0].geometry.boundingBox;bounds.getCenter(center);const size=bounds.getSize(new THREE.Vector3());w=size.x;h=size.y;}
+    const gap=Math.max(.15,Math.min(w,h)*.09),tick=gap*.18;
     const x=-w/2-gap,y=-h/2-gap;const pts=[];
     const line=(a,b)=>pts.push(new THREE.Vector3(...a),new THREE.Vector3(...b));
     line([-w/2,y,0],[w/2,y,0]);line([x,-h/2,0],[x,h/2,0]);
     for(const a of [-w/2,w/2]){line([a,-h/2-gap*.2,0],[a,y-tick*2,0]);line([a-tick,y-tick,0],[a+tick,y+tick,0]);}
     for(const b of [-h/2,h/2]){line([-w/2-gap*.2,b,0],[x-tick*2,b,0]);line([x-tick,b-tick,0],[x+tick,b+tick,0]);}
-    dimensionGeometry.setFromPoints(pts);dimensionGeometry.computeBoundingSphere();dimensionRoot.position.copy(selected.position);dimensionRoot.quaternion.copy(selected.quaternion);
-    dimensionAnchors[0].set(0,y,0);dimensionAnchors[1].set(x,0,0);
+    dimensionGeometry.setFromPoints(pts.map(p=>p.add(center)));dimensionGeometry.computeBoundingSphere();dimensionRoot.position.copy(selected.position);dimensionRoot.quaternion.copy(selected.quaternion);
+    dimensionAnchors[0].set(0,y,0).add(center);dimensionAnchors[1].set(x,0,0).add(center);
     $('dimension-width').textContent=`${fmt(w)} m`;$('dimension-height').textContent=`${fmt(h)} m`;
   }
   function positionDimensionLabels() {
@@ -260,7 +350,7 @@ function main() {
     row.classList.toggle('locked',!!f.locked);row.querySelector('.object-lock').hidden=!f.locked;
     row.querySelector('.group-badge').hidden=!f.groupId;
   }
-  function objectSize(f) {return f.type==='hollow'?`Hollow 40 × 40 · ${fmt(f.height*1000)} mm`: `${f.type==='led'?'LED · ':''}${fmt(f.width*1000)} × ${fmt(f.height*1000)}${isBallast(f)?' × '+fmt(f.depth*1000):''} mm`;}
+  function objectSize(f) {return isRiggingSegment(f)?`Truss 290 × 290 · ${fmt(f.height*1000)} mm`:f.type==='hollow'?`Hollow 40 × 40 · ${fmt(f.height*1000)} mm`: `${f.type==='led'?'LED · ':''}${fmt(f.width*1000)} × ${fmt(f.height*1000)}${hasDepth(f)?' × '+fmt(f.depth*1000):''} mm`;}
   function renderList() {
     $('object-list').replaceChildren();let index=0;
     for(const group of objects.values()){
@@ -275,7 +365,7 @@ function main() {
       row.addEventListener('click',event=>{select(group,{additive:event.ctrlKey||event.metaKey||event.shiftKey,single:event.altKey});if(innerWidth<=800&&!event.ctrlKey&&!event.shiftKey){document.querySelector('.library').classList.remove('panel-open');}});
       $('object-list').append(row);
     }
-    $('object-count').textContent=String(objects.size);$('status-count').textContent=`${objects.size} objek · ${[...objects.values()].filter(g=>isBallast(g.userData.frame)).length} pemberat`;$('empty-list').hidden=objects.size>0;$('viewport-empty').hidden=objects.size>0;updateSelectionList();renderFrameSummary();
+    $('object-count').textContent=String(objects.size);const data=[...objects.values()].map(g=>g.userData.frame);$('status-count').textContent=`${objects.size} objek · ${data.filter(isBallast).length} pemberat${data.some(isWheel)?` · ${data.filter(isWheel).length} roda`:''}${data.some(f=>f.type==='rigging')?` · ${data.filter(f=>f.type==='rigging').length} rigging`:''}${data.some(isCloth)?` · ${data.filter(isCloth).length} kain`:''}`;$('empty-list').hidden=objects.size>0;$('viewport-empty').hidden=objects.size>0;updateSelectionList();renderFrameSummary();
   }
   function renderFrameSummary() {
     const summary=objectSummary(allFrames()),key=JSON.stringify(summary);if(key===lastSummary)return;lastSummary=key;$('summary-total').textContent=`${summary.total} pcs`;
@@ -283,6 +373,7 @@ function main() {
     for(const item of summary.bySize){
       const row=document.createElement('tr'),size=document.createElement('td'),quantity=document.createElement('td');
       const kind=document.createElement('small');kind.className='summary-kind';kind.textContent=objectLabel(item);
+      if(isCloth(item)){const swatch=document.createElement('span');swatch.className='cloth-swatch';swatch.style.backgroundColor=item.clothColor;kind.prepend(swatch);}
       size.append(kind,document.createTextNode(item.type==='hollow'?`40 × 40 · ${fmt(item.height*1000)} mm`:objectSize(item).replace(/^LED · /,'')));quantity.textContent=`${item.quantity} pcs`;row.append(size,quantity);$('frame-summary-body').append(row);
     }
   }
@@ -298,7 +389,8 @@ function main() {
   }
   function tintSelection(group,active) {
     const led=group.userData.frame.type==='led';
-    group.userData.material.color.setHex(active&&!isBallast(group.userData.frame)?led?0x3b645f:0x628f72:group.userData.baseColor);
+    if(isCloth(group.userData.frame))group.userData.material.color.set(group.userData.frame.clothColor);
+    else group.userData.material.color.setHex(active&&!isBallast(group.userData.frame)?led?0x3b645f:0x628f72:group.userData.baseColor);
     group.userData.material.emissive.setHex(active?0x0c2110:0);
     group.userData.edgeMaterial.color.setHex(active?led?0x9ec4bd:0x356349:led?0x718594:0x587466);
     group.userData.screenMaterial?.color.setHex(active?0x2c5269:0x203c55);
@@ -308,6 +400,8 @@ function main() {
     for(const g of selection)tintSelection(g,false);selection.clear();
     for(const g of groups)if(objects.get(g.userData.frame.id)===g)selection.add(g);
     selected=selection.has(primary)?primary:[...selection].at(-1)??null;transform.detach();
+    if(selection.size!==1||!selected||!isCloth(selected.userData.frame))clothEditing=false;
+    syncClothControls();
     for(const g of selection)tintSelection(g,true);if(selection.size>1)resetProxy();
     $('no-selection').hidden=!!selected;$('selection-controls').hidden=!selected;
     if(!selected){$('inspector-title').textContent='Properti objek';$('status-text').textContent='Siap menyusun';}
@@ -324,9 +418,9 @@ function main() {
   function syncFields() {
     if(!selected)return;
     const f=frameData(selected);const id=f.name.toUpperCase();$('selected-id').textContent=id.length>24?id.slice(0,24)+'…':id;
-    const led=f.type==='led',hollow=f.type==='hollow',ballast=isBallast(f),multi=selection.size>1;
-    $('inspector-title').textContent=ballast?'Properti pemberat':led?'Properti LED Screen':hollow?'Properti hollow':'Properti frame';
-    $('selected-type').textContent=ballast?`PEMBERAT · ${objectLabel(f).toUpperCase()}`:led?'VIDEOTRON · 1 KABINET':hollow?'HOLLOW LURUS · 40 × 40 MM':f.shape==='square'?'FRAME KOTAK':'FRAME PERSEGI PANJANG';
+    const led=f.type==='led',hollow=f.type==='hollow',ballast=isBallast(f),wheel=isWheel(f),cloth=isCloth(f),rigging=f.type==='rigging',segment=isRiggingSegment(f),multi=selection.size>1;
+    $('inspector-title').textContent=cloth?'Properti kain':wheel?'Properti roda':rigging?'Properti rigging':ballast?'Properti pemberat':led?'Properti LED Screen':hollow?'Properti hollow':'Properti frame';
+    $('selected-type').textContent=cloth?'AKSESORIS LED · KAIN PENUTUP':wheel?'AKSESORIS LED · RODA CASTER':rigging?segment?'RIGGING · 1 BATANG TRUSS KOTAK':'RIGGING KELILING · FILE LAMA':ballast?`PEMBERAT · ${objectLabel(f).toUpperCase()}`:led?'VIDEOTRON · 1 KABINET':hollow?'HOLLOW LURUS · 40 × 40 MM':f.shape==='square'?'FRAME KOTAK':'FRAME PERSEGI PANJANG';
     $('frame-name').closest('label').hidden=multi;$('dimension-controls').hidden=multi;
     $('position-help').textContent=multi?'meter · pusat pilihan':'meter · titik tengah';
     if(multi){
@@ -334,15 +428,16 @@ function main() {
       $('selected-id').textContent=`${selection.size} OBJEK`;$('inspector-title').textContent='Properti pilihan';
       $('selected-type').textContent=groups.size===1&&f.groupId?'GRUP OBJEK':'PILIHAN BEBERAPA OBJEK';
     }
-    $('frame-brace-controls').hidden=f.type!=='frame';$('frame-width').disabled=hollow;$('frame-width').min=hollow?'40':'100';
-    $('frame-depth-field').hidden=!ballast;$('frame-depth').disabled=!ballast;
-    $('frame-height-label').textContent=hollow?'Panjang':'Tinggi';$('selected-led-size-field').hidden=!led;
+    $('frame-brace-controls').hidden=f.type!=='frame';$('frame-width').disabled=hollow||segment;$('frame-width').min=hollow?'40':segment?'290':rigging?'600':'100';$('frame-height').min=rigging&&!segment?'600':'100';
+    $('frame-width').closest('label').hidden=segment;$('selected-size-fields').classList.toggle('single-field',segment);
+    $('frame-depth-field').hidden=!hasDepth(f);$('frame-depth').disabled=!hasDepth(f);
+    $('frame-height-label').textContent=hollow||segment?'Panjang':'Tinggi';$('selected-led-size-field').hidden=!led;
     $('selected-led-size').value=ledPreset(f.width,f.height);
-    $('dimension-hint').textContent=ballast?'Lebar × tinggi × kedalaman termasuk tali dan pegangan. Ukuran berpusat di titik tengah.':led?'Bezel 2 mm · tebal kabinet 80 mm. Ukuran berpusat di titik tengah.':hollow?'Profil tetap 40 × 40 mm. Panjang searah sumbu Y lokal.':'Perubahan ukuran berpusat di titik tengah.';
-    const fields={'frame-name':f.name,'frame-width':round(f.width*1000),'frame-height':round(f.height*1000),'frame-brace-spacing':f.braceSpacingMm,'frame-depth':ballast?round(f.depth*1000):''};
+    $('dimension-hint').textContent=cloth?'Ukuran dasar mengatur titik bebas. Sudut yang menempel tetap mengikuti hollow; bentuknya diatur melalui Titik kain.':wheel?'Ukuran luar termasuk ban, garpu, dan pelat dudukan atas.':segment?'1 objek = 1 batang truss. Penampang tetap 290 × 290 mm; panjang searah Y lokal. Putar untuk menyusun konstruksi.':rigging?'Rigging keliling dari file lama; objek baru dibuat per batang.':ballast?'Lebar × tinggi × kedalaman termasuk tali dan pegangan. Ukuran berpusat di titik tengah.':led?'Bezel 2 mm · tebal kabinet 80 mm. Ukuran berpusat di titik tengah.':hollow?'Profil tetap 40 × 40 mm. Panjang searah sumbu Y lokal.':'Perubahan ukuran berpusat di titik tengah.';
+    const fields={'frame-name':f.name,'frame-width':round(f.width*1000),'frame-height':round(f.height*1000),'frame-brace-spacing':f.braceSpacingMm,'frame-depth':hasDepth(f)?round(f.depth*1000):''};
     const target=transformTarget();['x','y','z'].forEach((axis,i)=>{fields[`position-${axis}`]=multi?round(target.position[axis]):f.position[i];fields[`rotation-${axis}`]=multi?round(normalizeDegrees(THREE.MathUtils.radToDeg(target.rotation[axis]))):Number(f.rotation[i].toFixed(3));});
     for(const [id,value] of Object.entries(fields)){if(document.activeElement!==$(id))$(id).value=String(value);}
-    syncLockControls();syncTieControls();updateBraceSummary('frame');updateDimensions();
+    syncLockControls();syncTieControls();syncClothControls();updateBraceSummary('frame');updateDimensions();
   }
   function readFrameTemplate() {return validateFrameTemplate({width:inputNumber($('add-width'))/1000,height:inputNumber($('add-height'))/1000,braceSpacingMm:frameShape==='hollow'?0:inputSpacing($('add-brace-spacing'))});}
   function restoreFrameTemplate(template) {$('add-width').value=String(round(template.width*1000));$('add-height').value=String(round(template.height*1000));$('add-brace-spacing').value=String(template.braceSpacingMm);updateBraceSummary('add');}
@@ -350,6 +445,21 @@ function main() {
   function ledPreset(w,h) {return w===1&&h===.5?'1000x500':w===.5&&h===.5?'500x500':'custom';}
   function restoreLedTemplate(t) {$('add-led-width').value=String(round(t.width*1000));$('add-led-height').value=String(round(t.height*1000));$('led-size').value=ledPreset(t.width,t.height);}
   function readBallastTemplate() {return validateBallastTemplate({kind:$('ballast-kind').value,width:inputNumber($('add-ballast-width'))/1000,height:inputNumber($('add-ballast-height'))/1000,depth:inputNumber($('add-ballast-depth'))/1000});}
+  function readWheelTemplate() {return validateWheelTemplate(Object.fromEntries(['width','height','depth'].map(axis=>[axis,inputNumber($(`add-wheel-${axis}`))/1000])));}
+  function readRiggingTemplate() {return validateRiggingTemplate({length:inputNumber($('add-rigging-length'))/1000});}
+  function readClothTemplate() {return validateClothTemplate({width:inputNumber($('add-cloth-width'))/1000,height:inputNumber($('add-cloth-height'))/1000,color:$('add-cloth-color').value,sag:inputNumber($('add-cloth-sag'))/1000});}
+  function restoreAccessoryTemplates(project) {
+    for(const axis of ['width','height','depth'])$(`add-wheel-${axis}`).value=String(round(project.wheelTemplate[axis]*1000));
+    $('add-rigging-length').value=String(round(project.riggingTemplate.length*1000));
+    for(const axis of ['width','height'])$(`add-cloth-${axis}`).value=String(round(project.clothTemplate[axis]*1000));
+    $('add-cloth-color').value=project.clothTemplate.color;$('add-cloth-sag').value=String(round(project.clothTemplate.sag*1000));
+    accessoryKind=project.palette.accessory??'ballast';updateAccessoryPalette();
+  }
+  function updateAccessoryPalette() {
+    $('accessory-kind').value=accessoryKind;
+    for(const kind of ['ballast','wheel','rigging','cloth'])$(`${kind}-accessory-panel`).hidden=accessoryKind!==kind;
+    if(savedFrames)markEdited();
+  }
   function restoreBallastTemplate(t) {$('ballast-kind').value=t.kind;for(const axis of ['width','height','depth'])$(`add-ballast-${axis}`).value=String(round(t[axis]*1000));updateBallastPalette();}
   function updateBallastPalette() {
     const kind=$('ballast-kind').value;$('ballast-palette').dataset.kind=kind;
@@ -368,11 +478,11 @@ function main() {
     $('add-frame-label').textContent=hollow?'Add Hollow':'Add Frame';
     if(savedFrames)markEdited();
   }
-  function contentDigest() {return JSON.stringify({frames:allFrames(),settings,paletteType,frameShape,templateInputs:[$('add-width').value,$('add-height').value,$('add-brace-spacing').value,$('add-led-width').value,$('add-led-height').value,$('ballast-kind').value,...['width','height','depth'].map(axis=>$(`add-ballast-${axis}`).value)]});}
+  function contentDigest() {return JSON.stringify({frames:allFrames(),settings,paletteType,frameShape,accessoryKind,templateInputs:[$('add-width').value,$('add-height').value,$('add-brace-spacing').value,$('add-led-width').value,$('add-led-height').value,$('ballast-kind').value,...['ballast','wheel'].flatMap(kind=>['width','height','depth'].map(axis=>$(`add-${kind}-${axis}`).value)),$('add-rigging-length').value,...['width','height','color','sag'].map(key=>$(`add-cloth-${key}`).value)]});}
   function markEdited() {projectDirty=contentDigest()!==savedFrames;$('save-status').textContent=projectDirty?'Perubahan belum disimpan':'Proyek tersimpan · lokal';}
   function snapshot() {return JSON.stringify({frames:allFrames(),selected:[...selection].map(g=>g.userData.frame.id)});}
   function pushHistory() {
-    reconcileTies();syncTieControls();
+    reconcileTies();syncTieControls();syncClothControls();
     renderFrameSummary();
     const state=snapshot();
     if(historyIndex>=0&&histories[historyIndex]===state){updateGrid();return;}
@@ -384,7 +494,7 @@ function main() {
   function replaceFrames(frames,selectedId=null) {
     const staged=[];try{for(const f of frames)staged.push(buildFrame(f,false));}catch(e){staged.forEach(disposeFrame);throw e;}
     setTiePicking();select(null);for(const g of objects.values())disposeFrame(g);objects.clear();for(const id of tieMeshes.keys())removeTieMesh(id);
-    for(const g of staged){framesRoot.add(g);objects.set(g.userData.frame.id,g);}renderList();
+    for(const g of staged){framesRoot.add(g);objects.set(g.userData.frame.id,g);}reconcileTies();renderList();
     if(Array.isArray(selectedId))setSelection(selectedId.map(id=>objects.get(id)).filter(Boolean));else select(objects.get(selectedId)||null);
     updateGrid();dirty=true;
   }
@@ -407,6 +517,10 @@ function main() {
     }catch{el.textContent='Isi tinggi valid dan jarak 0 atau minimal 100 mm.';}
   }
   function readNewObject(type=paletteType) {
+    if(type==='ballast'&&accessoryKind!=='ballast')type=accessoryKind;
+    if(type==='wheel')return {...readWheelTemplate(),type:'wheel',braceSpacingMm:0};
+    if(type==='rigging')return {width:RIGGING_DEPTH,height:readRiggingTemplate().length,riggingKind:'segment',type:'rigging',braceSpacingMm:0};
+    if(type==='cloth'){const {color,sag,...size}=readClothTemplate();return {...size,type:'cloth',clothColor:color,clothSag:sag,braceSpacingMm:0};}
     if(type==='ballast'){const {kind,...size}=readBallastTemplate();return {...size,type:'ballast',ballastKind:kind,braceSpacingMm:0};}
     if(type==='led')return {...readLedTemplate(),type:'led',braceSpacingMm:0};
     if(frameShape==='hollow')return {type:'hollow',width:HOLLOW,height:dimension(inputNumber($('add-height'))/1000,'Panjang hollow'),braceSpacingMm:0};
@@ -433,7 +547,7 @@ function main() {
     if(!source.length){toast('Salin objek terlebih dahulu.',true);return;}
     try{
       const step=offset??[0,0,.15*(pasteCount+1)],copies=cloneObjects(source,allFrames(),step);
-      replaceFrames([...allFrames(),...copies],copies.map(f=>f.id));if(!offset)pasteCount++;frameCounter+=copies.length;pushHistory();fitAll();toast(`${copies.length} objek ditempel, termasuk pemberat yang disalin.`);
+      replaceFrames([...allFrames(),...copies],copies.map(f=>f.id));if(!offset)pasteCount++;frameCounter+=copies.length;pushHistory();fitAll();toast(`${copies.length} objek ditempel, termasuk semua aksesoris yang disalin.`);
     }catch(e){toast(e.message,true);}
   }
   function duplicate() {if(selection.size)pasteObjects([...selection].map(frameData),[0,0,[...selection].some(g=>g.position.z+.15>LIMIT_POSITION)?-.15:.15]);}
@@ -454,7 +568,7 @@ function main() {
     if(!selected)return;
     try{callback();reconcileTies();syncSelected();syncFields();pushHistory();dirty=true;}catch(e){toast(e.message,true);const active=document.activeElement;active?.blur();syncFields();}
   }
-  function applyTransformChange(callback) {if(selectionLocked()){toast('Pilihan terkunci. Buka semua kunci untuk menggeser atau memutar.');syncFields();return;}applySelectedChange(()=>{callback();if(selection.size>1)applyProxyDelta();});}
+  function applyTransformChange(callback) {if(selectionLocked()){toast([...selection].some(g=>g.userData.frame.mount)?'Roda mengikuti hollow. Pilih bersama hollow tujuan atau lepaskan dudukan untuk menggeser/putar.':'Pilihan terkunci. Buka semua kunci untuk menggeser atau memutar.');syncFields();return;}applySelectedChange(()=>{callback();if(selection.size>1)applyProxyDelta();});}
   function setMode(value) {
     if(drag||transform.dragging)return;mode=value;transform.setMode(value);$$('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===value));dirty=true;
   }
@@ -517,7 +631,7 @@ function main() {
   }
   function hitFrame(event) {setRay(event.clientX,event.clientY);framesRoot.updateMatrixWorld(true);return raycaster.intersectObjects([...objects.values()],true).find(h=>h.object.name==='beam')?.object.userData.frameRoot||null;}
   function hitGizmo(event) {
-    if(!selected||selectionLocked()||tiePicking)return false;setRay(event.clientX,event.clientY);gizmo.updateMatrixWorld(true);
+    if(!selected||selectionLocked()||tiePicking||clothEditing)return false;setRay(event.clientX,event.clientY);gizmo.updateMatrixWorld(true);
     const picker=gizmo.children.find(c=>c.type==='TransformControlsGizmo')?.picker?.[mode];
     // Use the public helper's runtime picker; it belongs to the pinned Three.js version.
     if(!picker)return transform.axis!==null;
@@ -533,9 +647,23 @@ function main() {
         event.stopImmediatePropagation();event.preventDefault();
         const target=hit.object.userData.frameRoot,index=hit.object.userData.memberIndex,member=objectMembers(target.userData.frame)[index],local=target.worldToLocal(hit.point.clone()),{axis}=tubeAnchor(target.userData.frame,{targetId:target.userData.frame.id,memberIndex:index,t:.5});
         const t=THREE.MathUtils.clamp(.5+(local.getComponent(axis)-member.position[axis])/Math.max(.0001,member.size[axis]-HOLLOW),0,1);
-        attachTie(target.userData.frame.id,index,t);setTiePicking();toast('Tali jerigen diikat ke hollow pilihan.');return;
+        const wheel=isWheel(selected.userData.frame),cloth=isCloth(selected.userData.frame);
+        if(cloth)attachClothPin(target.userData.frame.id,index,t,clothPickingCorner,clothPickingSide);else attachTie(target.userData.frame.id,index,t);
+        setTiePicking();toast(cloth?'Sudut kain menempel ke hollow pilihan.':wheel?'Roda menempel ke hollow pilihan.':'Tali jerigen diikat ke hollow pilihan.');return;
       }
-      if(hitFrame(event)){event.stopImmediatePropagation();toast('Pilih batang frame atau hollow lurus sebagai tujuan tali.');}return;
+      if(hitFrame(event)){event.stopImmediatePropagation();toast('Pilih batang frame atau hollow lurus sebagai tujuan.');}return;
+    }
+    if(clothEditing&&selected){
+      updateClothHandles();setRay(event.clientX,event.clientY);const hit=raycaster.intersectObjects(clothHandles.children).at(0);
+      if(hit){
+        event.stopImmediatePropagation();event.preventDefault();clothCorner=hit.object.userData.corner;syncClothControls();
+        if(selected.userData.frame.clothPins[clothCorner]){toast('Sudut menempel ke hollow. Lepaskan sudut untuk menyeretnya.');return;}
+        if(selected.userData.frame.locked){toast('Buka kunci kain untuk menyeret sudut.');return;}
+        const origin=new THREE.Vector3(...selected.userData.frame.clothCorners[clothCorner]),world=selected.localToWorld(origin.clone());
+        const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),world),start=raycaster.ray.intersectPlane(plane,new THREE.Vector3());if(!start)return;
+        drag={kind:'cloth',id:event.pointerId,target:selected,corner:clothCorner,origin,world,plane,start,x:event.clientX,y:event.clientY,moved:false};
+        orbit.enabled=false;canvas.style.cursor='grabbing';canvas.setPointerCapture(event.pointerId);return;
+      }
     }
     const additive=event.ctrlKey||event.metaKey||event.shiftKey;
     if(!additive&&!event.altKey&&hitGizmo(event)){orbit.enabled=false;return;}
@@ -555,12 +683,16 @@ function main() {
     if(event.pointerId!==drag.id)return;event.stopImmediatePropagation();event.preventDefault();
     if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<3&&!drag.moved)return;drag.moved=true;
     setRay(event.clientX,event.clientY);const p=raycaster.ray.intersectPlane(drag.plane,new THREE.Vector3());if(!p)return;
+    if(drag.kind==='cloth'){
+      p.sub(drag.start).add(drag.world);if(settings.snap)p.set(...p.toArray().map(n=>snapValue(n,settings.positionStep)));
+      drag.target.worldToLocal(p);p.clampScalar(-1000,1000);drag.target.userData.frame.clothCorners[drag.corner]=p.toArray();updateClothMesh(drag.target);syncFields();dirty=true;return;
+    }
     p.sub(drag.start).add(drag.origin);if(settings.snap)p.set(...p.toArray().map(n=>snapValue(n,settings.positionStep)));p.clampScalar(-LIMIT_POSITION,LIMIT_POSITION);
     drag.target.position.copy(p);if(selection.size>1){try{applyProxyDelta();}catch(e){toast(e.message,true);}}syncSelected();syncFields();dirty=true;
   },true);
   function endDirectDrag(cancel=false) {
     if(!drag)return;const d=drag;drag=null;
-    if(cancel){d.target.position.copy(d.origin);if(selection.size>1)applyProxyDelta();}
+    if(cancel){if(d.kind==='cloth'){d.target.userData.frame.clothCorners[d.corner]=d.origin.toArray();updateClothMesh(d.target);}else {d.target.position.copy(d.origin);if(selection.size>1)applyProxyDelta();}}
     if(canvas.hasPointerCapture(d.id))canvas.releasePointerCapture(d.id);
     orbit.enabled=true;canvas.style.cursor='';syncSelected();syncFields();if(!cancel&&d.moved)pushHistory();dirty=true;
   }
@@ -579,11 +711,11 @@ function main() {
   canvas.addEventListener('pointerup',e=>{if(backgroundPress&&Math.hypot(e.clientX-backgroundPress[0],e.clientY-backgroundPress[1])<3&&!gizmoGesture)select(null);backgroundPress=null;},false);
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
   let paletteDrag=null;
-  for(const [id,type] of [['frame-palette','frame'],['led-palette','led'],['ballast-palette','ballast']]){
+  for(const [id,type] of [['frame-palette','frame'],['led-palette','led'],['ballast-palette','ballast'],['wheel-palette','wheel'],['rigging-palette','rigging'],['cloth-palette','cloth']]){
     const palette=$(id);
     palette.addEventListener('dragstart',event=>{
       try{const data=readNewObject(type);ensureBraceBudget(data.height,data.braceSpacingMm);}catch(e){event.preventDefault();toast(e.message,true);return;}
-      paletteDrag=type;event.dataTransfer.setData('application/x-led-frame',type);event.dataTransfer.effectAllowed='copy';$('drop-overlay').querySelector('strong').textContent=type==='ballast'?'Lepas untuk menambah pemberat':type==='led'?'Lepas untuk menambah LED Screen':'Lepas untuk menambah frame / hollow';$('drop-overlay').hidden=false;
+      paletteDrag=type;event.dataTransfer.setData('application/x-led-frame',type);event.dataTransfer.effectAllowed='copy';$('drop-overlay').querySelector('strong').textContent=`Lepas untuk menambah ${objectLabel(readNewObject(type))}`;$('drop-overlay').hidden=false;
     });
     palette.addEventListener('dragend',()=>{paletteDrag=null;$('drop-overlay').hidden=true;});
   }
@@ -599,6 +731,13 @@ function main() {
   $('add-form').addEventListener('submit',e=>{e.preventDefault();addFrame();});
   $('add-led-form').addEventListener('submit',e=>{e.preventDefault();addFrame(null,'led');});
   $('add-ballast-form').addEventListener('submit',e=>{e.preventDefault();addFrame(null,'ballast');});
+  $('add-wheel-form').addEventListener('submit',e=>{e.preventDefault();addFrame(null,'wheel');});
+  $('add-rigging-form').addEventListener('submit',e=>{e.preventDefault();addFrame(null,'rigging');});
+  $('add-cloth-form').addEventListener('submit',e=>{e.preventDefault();addFrame(null,'cloth');});
+  $('accessory-kind').addEventListener('change',()=>{accessoryKind=$('accessory-kind').value;updateAccessoryPalette();});
+  for(const axis of ['width','height','depth'])$(`add-wheel-${axis}`).addEventListener('input',markEdited);
+  $('add-rigging-length').addEventListener('input',markEdited);
+  for(const key of ['width','height','color','sag'])$(`add-cloth-${key}`).addEventListener('input',markEdited);
   $('ballast-kind').addEventListener('change',()=>{const kind=$('ballast-kind').value;restoreBallastTemplate({kind,...BALLAST_PRESETS[kind]});markEdited();});
   ['width','height','depth'].forEach(axis=>$(`add-ballast-${axis}`).addEventListener('input',markEdited));
   $$('[data-object-type]').forEach(b=>b.addEventListener('click',()=>{paletteType=b.dataset.objectType;updatePalette();}));
@@ -626,20 +765,38 @@ function main() {
   });
   $('tie-target').addEventListener('change',()=>{
     if($('tie-target').value)attachTie($('tie-target').value);
-    else applySelectedChange(()=>{delete selected.userData.frame.tie;});
+    else applySelectedChange(()=>{delete selected.userData.frame[isWheel(selected.userData.frame)?'mount':'tie'];});
   });
-  $('tie-member').addEventListener('change',()=>{if(selected?.userData.frame.tie)attachTie($('tie-target').value,Number($('tie-member').value),inputNumber($('tie-position'))/100);});
-  $('tie-position').addEventListener('change',()=>{if(selected?.userData.frame.tie)attachTie($('tie-target').value,Number($('tie-member').value),inputNumber($('tie-position'))/100);});
-  $('tie-detach').addEventListener('click',()=>{setTiePicking();applySelectedChange(()=>{delete selected.userData.frame.tie;});});
-  $('tie-pick').addEventListener('click',()=>{if(selected&&isJerrycan(selected.userData.frame))setTiePicking(tiePicking?null:selected.userData.frame.id);});
+  $('tie-member').addEventListener('change',()=>{if(selected?.userData.frame.tie||selected?.userData.frame.mount)attachTie($('tie-target').value,Number($('tie-member').value),inputNumber($('tie-position'))/100);});
+  $('tie-position').addEventListener('change',()=>{if(selected?.userData.frame.tie||selected?.userData.frame.mount)attachTie($('tie-target').value,Number($('tie-member').value),inputNumber($('tie-position'))/100);});
+  $('tie-detach').addEventListener('click',()=>{setTiePicking();applySelectedChange(()=>{delete selected.userData.frame[isWheel(selected.userData.frame)?'mount':'tie'];});});
+  $('tie-pick').addEventListener('click',()=>{if(selected&&(isJerrycan(selected.userData.frame)||isWheel(selected.userData.frame)))setTiePicking(tiePicking?null:selected.userData.frame.id);});
   $('tie-pick-cancel').addEventListener('click',()=>setTiePicking());
+  $('cloth-corner').addEventListener('change',()=>{const next=Number($('cloth-corner').value);setTiePicking();clothCorner=next;syncClothControls();dirty=true;});
+  $('cloth-edit-corners').addEventListener('click',()=>{clothEditing=!clothEditing;syncLockControls();syncClothControls();dirty=true;});
+  for(const axis of ['x','y','z'])$(`cloth-point-${axis}`).addEventListener('change',()=>applySelectedChange(()=>{
+    const f=selected.userData.frame;if(!isCloth(f)||f.clothPins[clothCorner])return;
+    f.clothCorners[clothCorner][['x','y','z'].indexOf(axis)]=numeric(inputNumber($(`cloth-point-${axis}`)),-1000,1000,'Koordinat sudut kain');updateClothMesh(selected);
+  }));
+  for(const id of ['cloth-color','cloth-sag'])$(id).addEventListener('change',()=>applySelectedChange(()=>{
+    const f=selected.userData.frame;if(!isCloth(f))return;
+    const next=validateCloth({...f,clothColor:$('cloth-color').value,clothSag:inputNumber($('cloth-sag'))/1000});Object.assign(f,next);updateClothMesh(selected);
+  }));
+  $('cloth-pin-target').addEventListener('change',()=>{
+    if($('cloth-pin-target').value)attachClothPin($('cloth-pin-target').value);
+    else applySelectedChange(()=>{selected.userData.frame.clothPins[clothCorner]=null;});
+  });
+  for(const id of ['cloth-pin-member','cloth-pin-t','cloth-pin-side'])$(id).addEventListener('change',()=>{if(selected?.userData.frame.clothPins?.[clothCorner])attachClothPin($('cloth-pin-target').value,Number($('cloth-pin-member').value),inputNumber($('cloth-pin-t'))/100);});
+  $('cloth-pin-pick').addEventListener('click',()=>{if(selected&&isCloth(selected.userData.frame))setTiePicking(tiePicking?null:selected.userData.frame.id,clothCorner);});
+  $('cloth-pin-detach').addEventListener('click',()=>{setTiePicking();applySelectedChange(()=>{selected.userData.frame.clothPins[clothCorner]=null;});});
+  $('cloth-detach-all').addEventListener('click',()=>{setTiePicking();applySelectedChange(()=>{selected.userData.frame.clothPins=[null,null,null,null];});});
   for(const field of ['width','height'])$(`frame-${field}`).addEventListener('change',()=>applySelectedChange(()=>{
-    const f=selected.userData.frame;const value=dimension(inputNumber($(`frame-${field}`))/1000,field==='width'?'Lebar':'Tinggi');
+    const f=selected.userData.frame;if(field==='width'&&isRiggingSegment(f))return;const value=dimension(inputNumber($(`frame-${field}`))/1000,field==='width'?'Lebar':'Tinggi');
     const w=field==='width'?value:f.width,h=field==='height'?value:f.height;ensureBraceBudget(h,f.braceSpacingMm??0,selected);resizeFrame(selected,w,h);
   }));
   $('frame-depth').addEventListener('change',()=>applySelectedChange(()=>{
-    const f=selected.userData.frame;if(!isBallast(f))return;
-    const depth=dimension(inputNumber($('frame-depth'))/1000,'Kedalaman pemberat');resizeFrame(selected,f.width,f.height,0,depth);
+    const f=selected.userData.frame;if(!hasDepth(f))return;
+    const depth=dimension(inputNumber($('frame-depth'))/1000,'Kedalaman objek');resizeFrame(selected,f.width,f.height,0,depth);
   }));
   $('frame-brace-spacing').addEventListener('change',()=>applySelectedChange(()=>{
     const f=selected.userData.frame;if(f.type!=='frame')return;const spacingMm=inputSpacing($('frame-brace-spacing'));ensureBraceBudget(f.height,spacingMm,selected);resizeFrame(selected,f.width,f.height,spacingMm);
@@ -668,14 +825,21 @@ function main() {
     try{
       if(drag||transform.dragging)throw new Error('Selesaikan geseran objek sebelum menyimpan.');
       // Read the editor explicitly: saving must not depend on a blur/change event.
-      const template=readFrameTemplate(),ledTemplate=readLedTemplate(),ballastTemplate=readBallastTemplate();
+      const template=readFrameTemplate(),ledTemplate=readLedTemplate(),ballastTemplate=readBallastTemplate(),wheelTemplate=readWheelTemplate(),riggingTemplate=readRiggingTemplate(),clothTemplate=readClothTemplate();
       if(selected&&selection.size===1){
-        const f=selected.userData.frame,w=f.type==='hollow'?HOLLOW:dimension(inputNumber($('frame-width'))/1000,'Lebar'),h=dimension(inputNumber($('frame-height'))/1000,'Tinggi');
+        const f=selected.userData.frame,w=isRiggingSegment(f)?RIGGING_DEPTH:f.type==='hollow'?HOLLOW:dimension(inputNumber($('frame-width'))/1000,'Lebar'),h=dimension(inputNumber($('frame-height'))/1000,'Tinggi');
         const spacing=f.type==='frame'?inputSpacing($('frame-brace-spacing')):0;ensureBraceBudget(h,spacing,selected);
-        const depth=isBallast(f)?dimension(inputNumber($('frame-depth'))/1000,'Kedalaman pemberat'):undefined;
+        const depth=hasDepth(f)?dimension(inputNumber($('frame-depth'))/1000,'Kedalaman objek'):undefined;
         const position=f.locked?selected.position.toArray():['x','y','z'].map(axis=>numeric(inputNumber($(`position-${axis}`)),-LIMIT_POSITION,LIMIT_POSITION,'Posisi'));
         const rotation=f.locked?[selected.rotation.x,selected.rotation.y,selected.rotation.z]:['x','y','z'].map(axis=>THREE.MathUtils.degToRad(normalizeDegrees(numeric(inputNumber($(`rotation-${axis}`)),-36000,36000,'Rotasi'))));
         if(f.tie)f.tie=validateTie({...f.tie,memberIndex:Number($('tie-member').value),t:inputNumber($('tie-position'))/100});
+        if(f.mount)f.mount=validateTie({...f.mount,memberIndex:Number($('tie-member').value),t:inputNumber($('tie-position'))/100});
+        if(isCloth(f)){
+          const next=validateCloth({...f,clothColor:$('cloth-color').value,clothSag:inputNumber($('cloth-sag'))/1000});
+          if(next.clothPins[clothCorner])next.clothPins[clothCorner]=validateClothPin({...next.clothPins[clothCorner],memberIndex:Number($('cloth-pin-member').value),t:inputNumber($('cloth-pin-t'))/100,side:Number($('cloth-pin-side').value)});
+          else next.clothCorners[clothCorner]=['x','y','z'].map(axis=>numeric(inputNumber($(`cloth-point-${axis}`)),-1000,1000,'Koordinat sudut kain'));
+          Object.assign(f,next);
+        }
         f.name=$('frame-name').value.trim()||'Objek';resizeFrame(selected,w,h,spacing,depth);selected.position.fromArray(position);selected.rotation.set(...rotation,'XYZ');reconcileTies();syncSelected();pushHistory();
       }
       else if(selection.size>1&&!selectionLocked()){
@@ -684,8 +848,8 @@ function main() {
         selectionProxy.position.fromArray(position);selectionProxy.rotation.set(...rotation,'XYZ');applyProxyDelta();syncSelected();pushHistory();
       }
       document.activeElement?.blur();syncFields();
-      const project=makeProject(allFrames(),settings,cameraData(),template,ledTemplate,{type:paletteType,shape:frameShape},ballastTemplate);const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-      download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),`led-frame-project-v1.6-${date}.json`);savedFrames=contentDigest();markEdited();toast(`JSON tersimpan: ${project.frames.length} objek, termasuk ${project.frames.filter(isBallast).length} pemberat.`);
+      const project=makeProject(allFrames(),settings,cameraData(),template,ledTemplate,{type:paletteType,shape:frameShape,accessory:accessoryKind},ballastTemplate,wheelTemplate,riggingTemplate,clothTemplate);const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+      download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),`led-frame-project-v1.8-${date}.json`);savedFrames=contentDigest();markEdited();toast(`JSON tersimpan: ${project.frames.length} objek, ${project.frames.filter(isBallast).length} pemberat, ${project.frames.filter(isWheel).length} roda, ${project.frames.filter(f=>f.type==='rigging').length} rigging, ${project.frames.filter(isCloth).length} kain.`);
     }catch(e){toast(e.message||'Gagal menyimpan proyek.',true);}
   });
   $('load-project').addEventListener('click',()=>$('project-file').click());
@@ -696,9 +860,9 @@ function main() {
       let parsed;try{parsed=JSON.parse(await file.text());}catch{throw new Error('File bukan JSON yang valid.');}
       const project=validateProject(parsed);
       if(projectDirty&&!await confirmAction('Muat proyek?', 'Proyek saat ini memiliki perubahan yang belum disimpan. Memuat file akan menggantinya. Simpan JSON terlebih dahulu bila masih diperlukan.'))return;
-      replaceFrames(project.frames,project.frames[0]?.id);restoreFrameTemplate(project.frameTemplate);restoreLedTemplate(project.ledTemplate);restoreBallastTemplate(project.ballastTemplate);paletteType=project.palette.type;frameShape=project.palette.shape;updatePalette();settings=project.settings;applySettings();restoreCamera(project.camera);frameCounter=project.frames.length+1;
+      replaceFrames(project.frames,project.frames[0]?.id);restoreFrameTemplate(project.frameTemplate);restoreLedTemplate(project.ledTemplate);restoreBallastTemplate(project.ballastTemplate);restoreAccessoryTemplates(project);paletteType=project.palette.type;frameShape=project.palette.shape;updatePalette();settings=project.settings;applySettings();restoreCamera(project.camera);frameCounter=project.frames.length+1;
       histories=[];historyIndex=-1;savedFrames=contentDigest();pushHistory();const ballastCount=project.frames.filter(isBallast).length;
-      toast(`${objects.size} objek berhasil dimuat, termasuk ${ballastCount} pemberat.${!ballastCount?' File ini tidak berisi objek pemberat.':''}`);
+      toast(`${objects.size} objek berhasil dimuat, termasuk ${ballastCount} pemberat, ${project.frames.filter(isWheel).length} roda, ${project.frames.filter(f=>f.type==='rigging').length} rigging, ${project.frames.filter(isCloth).length} kain.${!ballastCount?' File ini tidak berisi objek pemberat.':''}`);
     } catch(e){toast(e.message||'Gagal membaca proyek.',true);}
   });
   $('new-project').addEventListener('click',async()=>{
@@ -709,12 +873,12 @@ function main() {
     if(drag||transform.dragging)return;
     const button=$('export-png');button.disabled=true;
     try {
-      const old=gizmo.visible,oldOutline=selectionOutline.visible;gizmo.visible=false;selectionOutline.visible=false;updateTies();renderer.render(scene,camera);
+      const old=gizmo.visible,oldOutline=selectionOutline.visible,oldHandles=clothHandles.visible;gizmo.visible=false;selectionOutline.visible=false;clothHandles.visible=false;updateTies();renderer.render(scene,camera);
       const output=document.createElement('canvas');output.width=canvas.width;output.height=canvas.height;const ctx=output.getContext('2d');if(!ctx)throw new Error('Tidak dapat membuat PNG.');ctx.drawImage(canvas,0,0);
       const scale=canvas.width/stage.clientWidth;ctx.scale(scale,scale);
       if(dimensionRoot.visible){positionDimensionLabels();for(const id of ['dimension-width','dimension-height']){const el=$(id);if(el.hidden)continue;const x=parseFloat(el.style.left),y=parseFloat(el.style.top);ctx.font='12px Consolas, monospace';const width=ctx.measureText(el.textContent).width+14;ctx.fillStyle='#f6f9f0';ctx.fillRect(x-width/2,y-10,width,20);ctx.strokeStyle='#bdcfb4';ctx.strokeRect(x-width/2,y-10,width,20);ctx.fillStyle='#3f6854';ctx.textAlign='center';ctx.fillText(el.textContent,x,y+4);}}
       ctx.font='11px Segoe UI, sans-serif';ctx.fillStyle='#748b69';ctx.textAlign='left';ctx.fillText('Contruction Builder (LED Rental)  /  Hollow 40 × 40 mm  /  Meter',18,stage.clientHeight-17);
-      gizmo.visible=old;selectionOutline.visible=oldOutline;dirty=true;
+      gizmo.visible=old;selectionOutline.visible=oldOutline;clothHandles.visible=oldHandles;dirty=true;
       const blob=await new Promise(resolve=>output.toBlob(resolve,'image/png'));if(!blob)throw new Error('Ekspor PNG gagal.');download(blob,'led-frame-structure.png');toast('PNG tampilan 3D berhasil diekspor.');
     }catch(e){gizmo.visible=!!selected;dirty=true;toast(e.message,true);}finally{button.disabled=false;}
   });
@@ -731,6 +895,7 @@ function main() {
     if(event.key==='Escape'){
       if(drag)endDirectDrag(true);
       else if(transform.dragging)cancelGizmo();
+      else if(clothEditing){clothEditing=false;syncFields();dirty=true;}
       else select(null);
       document.querySelectorAll('.panel-open').forEach(el=>el.classList.remove('panel-open'));return;
     }
@@ -755,7 +920,7 @@ function main() {
     lastStageWidth=width;lastStageHeight=height;resize();if(changed)fitAll(true);
   }).observe(stage);window.addEventListener('resize',resize);
   const first=buildFrame({id:uid(),name:'Frame 01',type:'frame',shape:'rectangle',width:1,height:2,braceSpacingMm:0,position:[0,1,0],rotation:[0,0,0]});frameCounter=2;renderList();select(first);updatePalette();updateBraceSummary('add');applySettings();setView('iso');savedFrames=contentDigest();pushHistory();$('save-status').textContent='Contoh 1000 × 2000 mm · siap disusun';$('loading').hidden=true;
-  function render() {requestAnimationFrame(render);orbit.update();if(dirty){updateTies();updateSelectionOutline();renderer.render(scene,camera);positionDimensionLabels();dirty=false;}}
+  function render() {requestAnimationFrame(render);orbit.update();if(dirty){updateTies();updateSelectionOutline();updateClothHandles();renderer.render(scene,camera);positionDimensionLabels();dirty=false;}}
   render();
 }
 try{main();}catch(error){console.error(error);$('loading').hidden=false;$('loading').classList.add('error-loading');$('loading').textContent=`Area 3D gagal dimulai: ${error.message}. Pastikan app.bundle.js berada di folder yang sama dengan index.html, lalu muat ulang.`;}

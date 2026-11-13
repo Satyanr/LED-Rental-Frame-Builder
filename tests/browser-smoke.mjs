@@ -59,7 +59,7 @@ try{
   await page.locator('#tab-ballast').click();await page.locator('.object-row').first().click();
   await page.locator('#frame-depth').fill('333');
   const project=await save(page,'pemberat-roundtrip.json',true);
-  assert.equal(project.appVersion,'1.6.0');assert.equal(project.frames[0].depth,.333);
+  assert.equal(project.appVersion,'1.8.0');assert.equal(project.frames[0].depth,.333);
   assert.equal(project.frames.filter(f=>f.type==='ballast').length,4);assert.equal(project.objectsSummary.total,6);
   assert.deepEqual(project.ballastTemplate,{kind:'concrete-block',width:.8,height:.35,depth:.4});
   assert.equal(project.palette.type,'ballast');assert.equal(project.frames[1].rotation[0],90);

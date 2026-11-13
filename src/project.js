@@ -1,6 +1,8 @@
 // Project format is deliberately independent of Three.js and the DOM.
 export const HOLLOW = 0.04;
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.8.0';
+export const WHEEL_PRESET = Object.freeze({width:.12,height:.18,depth:.1});
+export const RIGGING_DEPTH = .29;
 export const LED_DEPTH = 0.08;
 export const LED_BEZEL = 0.002;
 export const MAX_FRAMES = 300;
@@ -16,6 +18,37 @@ export const BALLAST_PRESETS = Object.freeze({
 });
 export const isBallast = data => data.type==='ballast';
 export const isJerrycan = data => isBallast(data)&&data.ballastKind==='water-jerrycan';
+export const isWheel = data => data.type==='wheel';
+export const isCloth = data => data.type==='cloth';
+export const isRiggingSegment = data => data.type==='rigging'&&(data.riggingKind==='segment'||data.riggingKind!=='legacy-frame'&&data.width===RIGGING_DEPTH);
+export const hasDepth = data => isBallast(data)||isWheel(data);
+export const isCustomGeometry = data => hasDepth(data)||data.type==='rigging'||isCloth(data);
+export function validateWheelTemplate(value=WHEEL_PRESET) {
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Ukuran roda tidak valid.');
+  return {width:dimension(value.width,'Lebar roda'),height:dimension(value.height,'Tinggi roda'),depth:dimension(value.depth,'Kedalaman roda')};
+}
+export function validateRiggingTemplate(value={length:2}) {
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Ukuran rigging tidak valid.');
+  if(value.length===undefined&&value.width!==undefined){numeric(value.width,.6,50,'Lebar rigging lama (meter)');numeric(value.height,.6,50,'Tinggi rigging lama (meter)');}
+  return {length:dimension(value.length??value.height,'Panjang rigging')};
+}
+export function validateClothTemplate(value={width:2,height:2,color:'#20242a',sag:.03}) {
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Pengaturan kain tidak valid.');
+  const color=value.color??'#20242a';if(typeof color!=='string'||!/^#[0-9a-f]{6}$/i.test(color))throw new Error('Warna kain harus berupa warna hex enam digit.');
+  return {width:dimension(value.width,'Lebar kain'),height:dimension(value.height,'Tinggi kain'),color:color.toLowerCase(),sag:numeric(value.sag??.03,0,5,'Gelombang kain (meter)')};
+}
+export const defaultClothCorners = (w,h) => [[-w/2,h/2,0],[w/2,h/2,0],[w/2,-h/2,0],[-w/2,-h/2,0]];
+export function validateClothPin(pin) {
+  const side=pin.side??1;if(side!==1&&side!==-1)throw new Error('Sisi pemasangan kain tidak valid.');
+  return {...validateTie(pin),side};
+}
+export function validateCloth(data) {
+  const template=validateClothTemplate({width:data.width,height:data.height,color:data.clothColor,sag:data.clothSag});
+  const corners=data.clothCorners??defaultClothCorners(template.width,template.height),pins=data.clothPins??[null,null,null,null];
+  if(!Array.isArray(corners)||corners.length!==4||corners.some(p=>!Array.isArray(p)||p.length!==3))throw new Error('Kain harus memiliki empat titik sudut XYZ.');
+  if(!Array.isArray(pins)||pins.length!==4)throw new Error('Kain harus memiliki empat pengaturan sambungan sudut.');
+  return {clothColor:template.color,clothSag:template.sag,clothCorners:corners.map(p=>p.map(n=>numeric(n,-1000,1000,'Koordinat sudut kain'))),clothPins:pins.map(p=>p===null?null:validateClothPin(p))};
+}
 export const isTubeTarget = data => !data.type||data.type==='frame'||data.type==='hollow';
 export function validateTie(tie) {
   if(!tie||typeof tie!=='object'||Array.isArray(tie)||typeof tie.targetId!=='string'||!tie.targetId.length||tie.targetId.length>=100)throw new Error('Tujuan tali tidak valid.');
@@ -37,9 +70,19 @@ export function validateConnections(frames) {
     if(!target||target.id===f.id)throw new Error('Tujuan tali tidak ditemukan dalam proyek.');
     tubeAnchor(target,f.tie);
   }
+  for(const f of frames)if(f.mount){
+    const target=byId.get(f.mount.targetId);
+    if(!target||target.id===f.id)throw new Error('Tujuan dudukan roda tidak ditemukan dalam proyek.');
+    tubeAnchor(target,f.mount);
+  }
+  for(const f of frames)if(isCloth(f))for(const pin of f.clothPins){
+    if(!pin)continue;const target=byId.get(pin.targetId);
+    if(!target||target.id===f.id)throw new Error('Tujuan sudut kain tidak ditemukan dalam proyek.');
+    tubeAnchor(target,pin);
+  }
   return frames;
 }
-export function objectLabel(data) {return isBallast(data)?data.ballastKind==='water-jerrycan'?'Jerigen air bertali':'Balok semen':data.type==='led'?'LED Screen':data.type==='hollow'?'Hollow lurus':'Frame';}
+export function objectLabel(data) {return isCloth(data)?'Kain penutup':isWheel(data)?'Roda caster':data.type==='rigging'?isRiggingSegment(data)?'Rigging batang':'Rigging lama (keliling)':isBallast(data)?data.ballastKind==='water-jerrycan'?'Jerigen air bertali':'Balok semen':data.type==='led'?'LED Screen':data.type==='hollow'?'Hollow lurus':'Frame';}
 export function validateBallastTemplate(value={kind:'water-jerrycan',...BALLAST_PRESETS['water-jerrycan']}) {
   if(!value||typeof value!=='object'||Array.isArray(value)||!Object.hasOwn(BALLAST_PRESETS,value.kind))throw new Error('Jenis pemberat tidak didukung.');
   return {kind:value.kind,width:dimension(value.width,'Lebar pemberat'),height:dimension(value.height,'Tinggi pemberat'),depth:dimension(value.depth,'Kedalaman pemberat')};
@@ -88,10 +131,65 @@ export function ledMembers(width,height) {
   ];
 }
 export function objectMembers(data) {
+  if(isCloth(data))return [{geometry:'cloth',...validateCloth(data)}];
+  if(isWheel(data))return wheelMembers(data);
+  if(data.type==='rigging')return riggingMembers(data);
   if(isBallast(data))return ballastMembers(data);
   if(data.type==='led')return ledMembers(data.width,data.height);
   if(data.type==='hollow'){dimension(data.height,'Panjang hollow');return [{size:[HOLLOW,data.height,HOLLOW],position:[0,0,0]}];}
   return frameMembers(data.width,data.height,data.braceSpacingMm??0);
+}
+export function wheelMembers(data) {
+  const {width:w,height:h,depth:d}=validateWheelTemplate(data);
+  const box=(size,position,surface='body')=>({geometry:'rounded',size,position,surface});
+  // The mounting plate is the exact top surface; the tyre touches the bottom.
+  const wheel=(diameter,thickness,z,surface)=>({geometry:'wheel',size:[w*diameter,h*.65*diameter/.9,thickness],position:[0,-h*.175,z],surface});
+  return [
+    box([w,h*.08,d],[0,h*.46,0]),
+    box([w*.5,h*.13,d*.52],[0,h*.355,0]),
+    ...[-1,1].map(side=>box([w*.72,h*.5,d*.1],[0,h*.04,side*d*.34])),
+    wheel(.9,d*.55,0,'rubber'),
+    ...[-1,1].map(side=>wheel(.55,d*.025,side*d*.285,'hub')),
+    {geometry:'wheel',size:[w*.14,h*.14,d*.82],position:[0,-h*.175,0],surface:'hub'},
+  ];
+}
+export function riggingMembers(data) {
+  if(isRiggingSegment(data)){
+    const h=dimension(data.height,'Panjang rigging'),r=.025,half=RIGGING_DEPTH/2-r,members=[];
+    const rod=(start,end,radius=r)=>members.push({geometry:'strut',start,end,radius,surface:'body'});
+    for(const x of [-half,half])for(const z of [-half,half])rod([x,-h/2,z],[x,h/2,z]);
+    const bays=Math.max(1,Math.min(80,Math.ceil(h/.5))),lo=-h/2+.01,span=h-.02;
+    for(let i=0;i<=bays;i++){
+      const y=lo+span*i/bays;
+      for(const z of [-half,half])rod([-half,y,z],[half,y,z],.01);
+      for(const x of [-half,half])rod([x,y,-half],[x,y,half],.01);
+      if(i===bays)continue;
+      const next=y+span/bays,a=i%2?half:-half;
+      for(const z of [-half,half])rod([a,y,z],[-a,next,z],.01);
+      for(const x of [-half,half])rod([x,y,a],[x,next,-a],.01);
+    }
+    return members;
+  }
+  const w=numeric(data.width,.6,50,'Lebar rigging lama'),h=numeric(data.height,.6,50,'Tinggi rigging lama'),s=RIGGING_DEPTH,r=.025,half=s/2-r,members=[];
+  const rod=(a,b,radius=r)=>members.push({geometry:'strut',start:a,end:b,radius,surface:'body'});
+  // Four box-truss sides form an open rectangular frame. The cross-section is square.
+  const side=(length,origin,vertical)=>{
+    const p=(t,c,z)=>vertical?[origin[0]+c,origin[1]+t,z]:[origin[0]+t,origin[1]+c,z];
+    for(const c of [-half,half])for(const z of [-half,half])rod(p(-length/2,c,z),p(length/2,c,z));
+    const bays=Math.max(1,Math.min(24,Math.ceil(length/.6)));
+    for(let i=0;i<=bays;i++){
+      const t=-length/2+length*i/bays;
+      for(const z of [-half,half])rod(p(t,-half,z),p(t,half,z),.01);
+      for(const c of [-half,half])rod(p(t,c,-half),p(t,c,half),.01);
+      if(i===bays)continue;
+      const next=t+length/bays,a=i%2?half:-half;
+      for(const z of [-half,half])rod(p(t,a,z),p(next,-a,z),.01);
+      for(const c of [-half,half])rod(p(t,c,a),p(next,c,-a),.01);
+    }
+  };
+  side(w-2*r,[0,(h-s)/2],false);side(w-2*r,[0,-(h-s)/2],false);
+  side(h-2*s,[ (w-s)/2,0],true);side(h-2*s,[-(w-s)/2,0],true);
+  return members;
 }
 export function ballastMembers(data) {
   const {kind,width:w,height:h,depth:d}=validateBallastTemplate({...data,kind:data.ballastKind});
@@ -126,11 +224,19 @@ export function validateFrame(frame, index=0) {
   };
   const name = typeof frame.name === 'string' ? frame.name.trim().slice(0,60) : '';
   const type=frame.type??'frame';
-  if(!['frame','hollow','led','ballast'].includes(type))throw new Error('Jenis objek tidak didukung.');
+  if(!['frame','hollow','led','ballast','wheel','rigging','cloth'].includes(type))throw new Error('Jenis objek tidak didukung.');
   const ballast=type==='ballast'?validateBallastTemplate({...frame,kind:frame.ballastKind}):null;
   if(frame.locked!==undefined&&typeof frame.locked!=='boolean')throw new Error('Status kunci objek harus benar atau salah.');
   if(frame.groupId!=null&&(typeof frame.groupId!=='string'||!frame.groupId.length||frame.groupId.length>=100))throw new Error('ID grup tidak valid.');
   if(frame.tie!=null&&!isJerrycan(frame))throw new Error('Tali pengikat hanya tersedia untuk jerigen air.');
+  if(frame.mount!=null&&!isWheel(frame))throw new Error('Dudukan hollow hanya tersedia untuk roda.');
+  if(type==='wheel')validateWheelTemplate(frame);
+  if(type==='rigging'){
+    if(frame.riggingKind!==undefined&&!['segment','legacy-frame'].includes(frame.riggingKind))throw new Error('Bentuk rigging tidak didukung.');
+    if(isRiggingSegment(frame)){if(frame.width!==RIGGING_DEPTH)throw new Error('Penampang rigging batang harus 290 × 290 mm.');dimension(frame.height,'Panjang rigging');}
+    else {numeric(frame.width,.6,50,'Lebar rigging lama');numeric(frame.height,.6,50,'Tinggi rigging lama');}
+  }
+  if(type!=='cloth'&&['clothPins','clothCorners','clothSag','clothColor'].some(key=>frame[key]!==undefined))throw new Error('Pengaturan kain hanya tersedia untuk objek kain.');
   const shape=frame.shape??(frame.width===frame.height?'square':'rectangle');
   if(type==='frame'&&!['square','rectangle'].includes(shape))throw new Error('Bentuk frame tidak didukung.');
   if(type==='frame'&&shape==='square'&&frame.width!==frame.height)throw new Error('Frame kotak harus memiliki lebar dan tinggi sama.');
@@ -144,6 +250,10 @@ export function validateFrame(frame, index=0) {
     type,locked:frame.locked??false,...(type==='frame'?{shape}:{}),
     ...(frame.groupId!=null?{groupId:frame.groupId}:{}),
     ...(frame.tie!=null?{tie:validateTie(frame.tie)}:{}),
+    ...(frame.mount!=null?{mount:validateTie(frame.mount)}:{}),
+    ...(type==='wheel'?{depth:frame.depth}:{}),
+    ...(type==='rigging'?{riggingKind:isRiggingSegment(frame)?'segment':'legacy-frame'}:{}),
+    ...(type==='cloth'?validateCloth(frame):{}),
     ...(ballast?{ballastKind:ballast.kind,depth:ballast.depth}:{}),
     width:type==='hollow'?HOLLOW:dimension(frame.width, 'Lebar'), height:dimension(frame.height, 'Tinggi'),
     braceSpacingMm:spacingMm,
@@ -171,9 +281,9 @@ export function frameSummary(frames) {
 export function objectSummary(objects) {
   const groups=new Map();
   for(const f of objects){
-    const type=f.type??'frame',sides=isBallast(f)?[f.width,f.height,f.depth]:type==='hollow'?[HOLLOW,f.height]:[f.width,f.height].sort((a,b)=>b-a);
-    const key=[type,...(isBallast(f)?[f.ballastKind]:[]),...sides.map(n=>Number(n.toFixed(6)))].join(':');
-    if(!groups.has(key))groups.set(key,{type,width:sides[0],height:sides[1],...(isBallast(f)?{depth:f.depth,ballastKind:f.ballastKind}:{}),quantity:0});
+    const type=f.type??'frame',sides=hasDepth(f)?[f.width,f.height,f.depth]:type==='hollow'?[HOLLOW,f.height]:isRiggingSegment(f)?[RIGGING_DEPTH,f.height]:[f.width,f.height].sort((a,b)=>b-a);
+    const key=[type,...(isBallast(f)?[f.ballastKind]:[]),...(isCloth(f)?[f.clothColor]:[]),...sides.map(n=>Number(n.toFixed(6)))].join(':');
+    if(!groups.has(key))groups.set(key,{type,width:sides[0],height:sides[1],...(hasDepth(f)?{depth:f.depth}:{}),...(isBallast(f)?{ballastKind:f.ballastKind}:{}),...(type==='rigging'?{riggingKind:isRiggingSegment(f)?'segment':'legacy-frame'}:{}),...(isCloth(f)?{clothColor:f.clothColor}:{}),quantity:0});
     groups.get(key).quantity++;
   }
   return {total:objects.length,bySize:[...groups.values()]};
@@ -207,13 +317,16 @@ export function validateProject(data) {
   const frameTemplate=validateFrameTemplate(data.frameTemplate??frames.find(f=>f.type==='frame')??{width:1,height:2,braceSpacingMm:0});
   const ledTemplate=validateLedTemplate(data.ledTemplate);
   const ballastTemplate=validateBallastTemplate(data.ballastTemplate);
+  const wheelTemplate=validateWheelTemplate(data.wheelTemplate),riggingTemplate=validateRiggingTemplate(data.riggingTemplate);
+  const clothTemplate=validateClothTemplate(data.clothTemplate);
   const palette={type:['frame','led','ballast'].includes(data.palette?.type)?data.palette.type:'frame',shape:['square','rectangle','hollow'].includes(data.palette?.shape)?data.palette.shape:'rectangle'};
+  if(['ballast','wheel','rigging','cloth'].includes(data.palette?.accessory))palette.accessory=data.palette.accessory;
   if(palette.shape==='square'&&frameTemplate.width!==frameTemplate.height)palette.shape='rectangle';
-  return {frames, settings, camera, frameTemplate, ledTemplate, ballastTemplate, palette};
+  return {frames, settings, camera, frameTemplate, ledTemplate, ballastTemplate, wheelTemplate, riggingTemplate, clothTemplate, palette};
 }
-export function makeProject(frames, settings, camera, template=frames.find(f=>!f.type||f.type==='frame')??{width:1,height:2,braceSpacingMm:0}, ledTemplate, palette={type:'frame',shape:'rectangle'}, ballastTemplate) {
+export function makeProject(frames, settings, camera, template=frames.find(f=>!f.type||f.type==='frame')??{width:1,height:2,braceSpacingMm:0}, ledTemplate, palette={type:'frame',shape:'rectangle'}, ballastTemplate, wheelTemplate, riggingTemplate, clothTemplate) {
   const savedFrames=validateConnections(frames.map(validateFrame));
-  return {app:'led-rental-frame-builder', appVersion:APP_VERSION, version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames:savedFrames, frameTemplate:validateFrameTemplate(template), ledTemplate:validateLedTemplate(ledTemplate),ballastTemplate:validateBallastTemplate(ballastTemplate),palette:{...palette}, summary:frameSummary(savedFrames), objectsSummary:objectSummary(savedFrames), settings:{...settings}, camera};
+  return {app:'led-rental-frame-builder', appVersion:APP_VERSION, version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames:savedFrames, frameTemplate:validateFrameTemplate(template), ledTemplate:validateLedTemplate(ledTemplate),ballastTemplate:validateBallastTemplate(ballastTemplate),wheelTemplate:validateWheelTemplate(wheelTemplate),riggingTemplate:validateRiggingTemplate(riggingTemplate),clothTemplate:validateClothTemplate(clothTemplate),palette:{...palette}, summary:frameSummary(savedFrames), objectsSummary:objectSummary(savedFrames), settings:{...settings}, camera};
 }
 
 export function cloneObjects(source,existing,offset=[0,0,.15]) {
@@ -224,10 +337,11 @@ export function cloneObjects(source,existing,offset=[0,0,.15]) {
   for(const [id,count] of groupCounts)if(count>1)groups.set(id,uid());
   const copies=source.map(f=>{
     const copy=validateFrame({...f,id:ids.get(f.id),name:`${f.name.slice(0,50)} salinan`,locked:false,groupId:groups.get(f.groupId),position:f.position.map((n,i)=>n+numeric(offset[i],-1000,1000,'Offset salinan'))});
-    if(copy.tie){
-      if(ids.has(copy.tie.targetId))copy.tie={...copy.tie,targetId:ids.get(copy.tie.targetId)};
-      else if(!available.has(copy.tie.targetId))delete copy.tie;
+    for(const key of ['tie','mount'])if(copy[key]){
+      if(ids.has(copy[key].targetId))copy[key]={...copy[key],targetId:ids.get(copy[key].targetId)};
+      else if(!available.has(copy[key].targetId))delete copy[key];
     }
+    if(isCloth(copy))copy.clothPins=copy.clothPins.map(pin=>!pin?null:ids.has(pin.targetId)?{...pin,targetId:ids.get(pin.targetId)}:available.has(pin.targetId)?pin:null);
     return copy;
   });
   const all=[...existing,...copies];validateConnections(all);

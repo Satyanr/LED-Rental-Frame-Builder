@@ -1,8 +1,8 @@
 # Contruction Builder (LED Rental)
 
-Versi **1.6.0** — pilih beberapa objek, shortcut copy/paste dan select all, grup, serta jumlah pemberat pada hasil simpan/muat JSON.
+Versi **1.8.0** — rigging dibuat per batang truss kotak seperti hollow lurus; kain penutup memiliki empat sudut fleksibel yang bisa menempel ke hollow.
 
-Editor 3D lokal untuk menyusun rangka, kabinet LED rental, dan objek pemberat secara manual. Dibuat dengan HTML, CSS, JavaScript dan Three.js r170 yang sudah disertakan dalam paket. **Tidak memerlukan internet, akun, instalasi, atau proses build untuk dipakai.**
+Editor 3D lokal untuk menyusun rangka, kabinet LED rental, pemberat, roda, rigging, dan kain penutup secara manual. Dibuat dengan HTML, CSS, JavaScript dan Three.js r170 yang sudah disertakan dalam paket. **Tidak memerlukan internet, akun, instalasi, atau proses build untuk dipakai.**
 
 ## Menjalankan
 
@@ -38,9 +38,39 @@ Tidak perlu menjalankan server. Jika ingin menggunakan server lokal, dari folder
 - Batas proyek **300 objek** berlaku untuk gabungan frame, hollow lurus, LED Screen, dan pemberat. Batas ukuran frame/kabinet serta panjang hollow tetap 100–50.000 mm.
 - Untuk mencoba susunan, klik **Muat** dan pilih `contoh-frame-dan-led-screen.json`: berisi frame kotak dengan delapan kabinet 1000 × 500 mm yang saling berdampingan, frame persegi panjang, hollow lurus, dan satu kabinet custom 1280 × 720 mm.
 
+## Aksesoris LED: roda, rigging batang, dan kain
+
+Tab **Pemberat** kini bernama **Aksesoris LED**. Pilih **Pemberat**, **Roda caster**, **Rigging batang**, atau **Kain penutup** lewat kolom Jenis aksesoris. Pemberat dan tali jerigen tetap tersedia.
+
+- **Roda caster:** ukuran awal luar **120 × 180 × 100 mm** (lebar × tinggi × kedalaman), termasuk ban, garpu, poros, dan pelat dudukan. Ukuran bisa diubah pada form maupun Properti roda; tiap dimensi 100–50.000 mm.
+- Setelah **Tambah Roda**, buka **Dudukan roda ke hollow** pada properti. Gunakan **Pilih hollow di area 3D** atau daftar tujuan, lalu pilih batang dan posisi 0–100%, sama seperti pemilihan tujuan tali jerigen. Hollow terkunci tetap bisa menjadi tujuan.
+- Pelat atas roda menempel ke sisi bawah batang horizontal atau sisi kiri batang vertikal, menurut sumbu lokal frame/hollow. Roda mengikuti posisi, rotasi, ukuran, dan titik pemasangan pada hollow, termasuk hollow tengah. Mengubah tinggi roda mempertahankan kontak pelat dengan hollow.
+- Selama menempel, transformasi roda sendiri dinonaktifkan. **Lepaskan roda dari hollow** untuk menggeser/putar bebas; posisi terakhir dipertahankan. Pilih frame bersama roda untuk memindahkan atau memutar bersama. Gunakan **Letakkan di lantai** pada pilihan tersebut agar roda menyentuh lantai.
+- Menghapus hollow tujuan atau batang tengah yang dipakai melepaskan roda. Undo/Redo memulihkan sambungan. Copy/paste frame bersama roda mengarahkan dudukan ke frame salinan. Salinan roda saja mempertahankan tujuan dan persentase pemasangan yang sama; ubah persentasenya untuk membedakan posisi. Paste ke proyek tanpa hollow tujuan melepaskan dudukan.
+- **Rigging batang:** satu objek adalah **satu batang truss dengan penampang kotak 290 × 290 mm**, berisi empat batang utama dan diagonal. Atur **Panjang batang** dari **100 hingga 50.000 mm**, seperti Hollow lurus. Arah awal mengikuti Y lokal; gunakan rotasi untuk membuat batang horizontal atau miring. Tambahkan, duplikat, dan susun batang-batang tersebut sendiri. Rigging baru selalu per batang.
+- Panjang rigging bisa diubah lagi melalui Properti rigging. Penampang tetap 290 × 290 mm. Rekap material membedakan panjang batang dan jumlahnya. Rigging keliling dari JSON v1.7 tetap dimuat sesuai bentuk lamanya agar susunan lama tidak berubah; form penambahan tetap menggunakan model per batang.
+- Roda, rigging, dan kain mendukung tambah, drag/drop kartu, pemilihan dari viewport/daftar, ukuran custom, kunci, grup, copy/paste, duplikat, hapus, Undo/Redo, label dimensi, rekap material, PNG, serta simpan/muat JSON. Semua jenis berbagi batas 300 objek.
+- JSON v1.8 menyimpan `type: "rigging"`, `riggingKind: "segment"`, lebar tetap `0.29`, dan panjang dalam `height`. Form rigging menyimpan `riggingTemplate.length`. Pilihan aksesoris ada pada `palette.accessory`. JSON versi lama tetap bisa dimuat.
+- Muat **contoh-rigging-batang-dan-kain.json** atau **contoh-frame-dan-aksesoris.json** untuk mencoba frame berkain dengan dua roda, jerigen bertali, dan tiga batang rigging yang disusun manual menjadi portal.
+
+## Kain penutup yang fleksibel
+
+1. Buka **Aksesoris LED → Kain penutup**. Isi **Lebar dasar**, **Tinggi dasar** dalam mm, warna, dan **Gelombang / lendutan**. Nilai gelombang 0 membuat permukaan rata; nilai lebih besar memberi lipatan visual. Klik **Tambah Kain**, atau seret kartunya ke lantai.
+2. Pilih kain, lalu buka **Titik kain**. Keempat sudut memiliki nomor: **1 kiri atas, 2 kanan atas, 3 kanan bawah, 4 kiri bawah**, menurut bidang lokal awal kain. Atur XYZ lokal dalam meter untuk membuat sudut melebar, miring, atau berubah kedalaman. Nomor sudut tetap sama setelah kain diputar.
+3. Untuk mengatur langsung di viewport, aktifkan **Edit sudut di 3D**. Seret titik hijau/biru pada bidang sejajar layar. Gunakan tampilan Front, Left/Right, atau Top untuk mengubah sumbu yang diinginkan. Titik biru adalah sudut yang sedang dipilih; titik kuning menempel ke hollow. **Esc** membatalkan seretan aktif atau menutup mode edit sudut. Kain terkunci tidak mengizinkan seret sudut sampai kunci dibuka.
+4. Untuk menempelkan sudut, pilih nomor sudut lalu klik **Tempel sudut ke hollow di 3D** dan klik batang tujuan. Pemilihan bisa menembus kain agar hollow di belakangnya tetap dapat dipilih. Alternatifnya, gunakan daftar **Frame / hollow tujuan**, **Batang tujuan**, dan persentase **Posisi pada batang**. Hollow terkunci tetap dapat dipilih.
+5. Setiap sudut boleh memakai hollow berbeda. Pilih sisi **Depan (+Z lokal)** atau **Belakang (−Z lokal)** hollow. Titik pemasangan berada 3 mm di luar permukaan hollow agar kain tidak berimpit dengan batang. Sudut menempel mengikuti gerakan, putaran, ukuran, dan persentase pemasangan hollow. Titik bebas tetap mengikuti transformasi objek kain, sehingga permukaannya bisa berubah bentuk di antara titik-titik tersebut.
+6. XYZ sudut menempel dinonaktifkan. **Lepaskan sudut ini** atau **Lepaskan semua sudut** mempertahankan bentuk terakhir agar bisa disesuaikan lagi. Menghapus hollow tujuan atau batang tengah yang dipakai melepas sudut terkait. Undo/Redo mengembalikan bentuk dan sambungan.
+
+Ukuran dasar kain dibatasi 100–50.000 mm; gelombang/lendutan 0–5.000 mm. Mengubah ukuran dasar mengubah skala titik bebas; sudut menempel tetap di hollow tujuan. Label dimensi 3D menunjukkan bentang aktual geometri kain. Rekap material memakai ukuran dasar dan warna; posisi sudut serta gelombang tidak menambah objek material. Kain bersifat padat dan tampil dari dua sisi.
+
+Copy/paste kain bersama hollow tujuan mengarahkan setiap sudut ke salinan hollow yang sesuai. Menyalin kain saja mempertahankan tujuan yang masih tersedia; menempel ke proyek kosong melepas sambungan ke hollow yang tidak ada. Transformasi grup berisi kain dan seluruh hollow tujuannya mempertahankan susunan bersama.
+
+JSON menyimpan `type: "cloth"`, `clothCorners` (empat XYZ lokal), `clothPins` (empat sambungan atau `null`), `clothColor`, dan `clothSag` (meter). Setiap pin berisi `{targetId, memberIndex, t, side}`. Form penambahan disimpan terpisah di `clothTemplate`. Bentuk sudut, sambungan, warna, dan gelombang ikut tersimpan, termasuk nilai properti yang masih diketik saat menekan Simpan JSON. Titik kontrol editor tidak masuk ekspor PNG.
+
 ## Objek pemberat
 
-- Buka tab **Pemberat**, pilih **Jerigen air bertali** atau **Balok semen**, lalu klik **Tambah Pemberat** atau seret kartunya ke lantai dalam tampilan Iso/Top.
+- Buka tab **Aksesoris LED**, pilih jenis aksesoris **Pemberat**, lalu pilih **Jerigen air bertali** atau **Balok semen**. Klik **Tambah Pemberat** atau seret kartunya ke lantai dalam tampilan Iso/Top.
 - Jerigen memiliki badan biru, pegangan terbuka, tutup, serta tali yang melingkari badan dan terikat di pegangan. Balok semen memiliki bentuk padat dengan tekstur beton.
 - Ukuran awal jerigen **350 × 500 × 250 mm** dan balok **600 × 300 × 300 mm**, dalam urutan **lebar × tinggi × kedalaman**. Nilai ini adalah ukuran contoh yang dapat disesuaikan. Mengganti jenis mengisi ulang ukuran awal.
 - Ubah ketiga ukuran pada form atau panel **Properti pemberat**; batas tiap dimensi 100–50.000 mm. Ukuran luar model jerigen mencakup pegangan dan tali. Posisi awal sisi terbawah berada di lantai, Y=0.
@@ -96,7 +126,7 @@ Satu jerigen memiliki satu tali pengikat ke hollow. Tali ditampilkan sebagai gar
 
 ## Simpan, muat, dan screenshot
 
-- **Simpan JSON** membaca perubahan properti yang sedang diketik sebelum membuat file, termasuk kedalaman pemberat dan posisi ikat tali. Nilai pada form pembuatan objek ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.6 pada nama file dan `appVersion` di dalam JSON.
+- **Simpan JSON** membaca perubahan properti yang sedang diketik sebelum membuat file, termasuk panjang rigging, bentuk/sambungan kain, ukuran roda, kedalaman pemberat, dan posisi sambungan. Nilai pada form pembuatan objek ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.8 pada nama file dan `appVersion` di dalam JSON.
 - Pesan hasil simpan/muat dan status bawah menampilkan jumlah pemberat. Tekan **Tambah Pemberat** agar objek masuk proyek sebelum menyimpan. Pengaturan jenis dan ukuran form pada `ballastTemplate` terpisah dari objek aktual di `frames`. File dengan 0 objek pemberat hanya dapat memulihkan objek yang memang tersimpan; tambahkan pemberat kembali lalu simpan JSON baru.
 - Seluruh geometri proyek baru disiapkan sebelum mengganti proyek aktif. Jika pemuatan gagal, proyek sebelumnya tetap dipertahankan; impor tidak meninggalkan sebagian objek terpasang.
 - **Simpan JSON** mengunduh proyek: seluruh frame, nama, dimensi, jarak hollow tengah, posisi, rotasi, preferensi snap/grid, dan keadaan kamera. Simpan sebelum menutup halaman; tidak ada penyimpanan otomatis.
@@ -142,7 +172,11 @@ Panel kiri dan kanan berubah menjadi panel buka/tutup melalui **Frame & objek** 
 - `index.html`, `styles.css`, `app.bundle.js`: versi file terpisah, juga bisa dibuka langsung.
 - `src/app.js`: antarmuka, geometri, kamera dan interaksi Three.js.
 - `src/project.js`: format proyek dan validasi.
-- `src/geometry.js`: geometri pemberat dan tekstur beton lokal.
+- `src/geometry.js`: geometri pemberat, roda, truss rigging, kain, sambungan kain/roda, dan tekstur beton lokal.
+- `tests/accessories.test.js`: validasi roda/rigging, dimensi luar, pusat rigging terbuka, kontak pelat roda setelah transformasi, dan penyalinan sambungan.
+- `tests/accessories-browser.mjs`: pengujian tab Aksesoris LED, roda mengikuti hollow, rigging custom, copy/paste, Undo/Redo, JSON lama/baru, HTML mandiri, mobile, dan PNG. Jalankan dengan konfigurasi Playwright yang sama.
+- `tests/cloth-rigging.test.js`: geometri rigging per batang, kompatibilitas rigging lama, validasi kain, posisi sudut pada hollow, mesh kain fleksibel, serta penyalinan sambungan.
+- `tests/cloth-browser.mjs`: pengujian warna/gelombang kain, input sudut, seret titik 3D, pemasangan lewat klik/daftar, hollow berbeda, penghapusan tujuan, Undo/Redo, grup, simpan/muat, mobile, dan PNG.
 - `tests/project.test.js`: pemeriksaan format proyek, batas dimensi, angka, snap, dan kamera.
 - `tests/browser-smoke.mjs`: pemeriksaan browser opsional dengan Playwright; jalankan `node tests/browser-smoke.mjs` jika Playwright dan Chromium tersedia. `PLAYWRIGHT_MODULE` dan `CHROME_PATH` dapat menunjuk instalasi yang sudah ada. Hasil tersimpan di `.verification/`.
 - `tests/attachments-browser.mjs`: pemeriksaan browser untuk kunci objek, pemilihan hollow melalui klik, tali yang mengikuti transformasi, penghapusan tujuan, Undo/Redo, JSON, dan layar kecil. Jalankan dengan konfigurasi Playwright yang sama.

@@ -1,10 +1,10 @@
 {
   "name": "contruction-builder-led-rental",
-  "version": "1.6.0",
+  "version": "1.8.0",
   "private": true,
   "type": "module",
-  "description": "Offline 3D editor for LED rental frames, straight hollow tubes and custom LED screen cabinets",
-  "scripts": {"build":"node build.mjs", "test":"node --test tests/project.test.js"},
+  "description": "Offline 3D editor for LED frames, screens, ballasts, hollow-mounted caster wheels and box truss rigging",
+  "scripts": {"build":"node build.mjs", "test":"node --test tests/project.test.js tests/accessories.test.js tests/cloth-rigging.test.js"},
   "dependencies": {"three":"0.170.0"},
   "devDependencies": {"esbuild":"0.25.12"}
 }

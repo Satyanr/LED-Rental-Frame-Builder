@@ -1,0 +1,337 @@
+{
+  "app": "led-rental-frame-builder",
+  "appVersion": "1.8.0",
+  "version": 1,
+  "units": "meters",
+  "hollow": {
+    "width": 0.04,
+    "height": 0.04
+  },
+  "frames": [
+    {
+      "id": "frame-roda",
+      "name": "Frame ditutup kain",
+      "type": "frame",
+      "locked": false,
+      "shape": "square",
+      "width": 2,
+      "height": 2,
+      "braceSpacingMm": 1000,
+      "position": [
+        0,
+        1.18,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "roda-0",
+      "name": "Roda kiri",
+      "type": "wheel",
+      "locked": false,
+      "mount": {
+        "targetId": "frame-roda",
+        "memberIndex": 1,
+        "t": 0.08
+      },
+      "depth": 0.1,
+      "width": 0.12,
+      "height": 0.18,
+      "braceSpacingMm": 0,
+      "position": [
+        -0.8231999999999999,
+        0.08999999999999986,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "roda-1",
+      "name": "Roda kanan",
+      "type": "wheel",
+      "locked": false,
+      "mount": {
+        "targetId": "frame-roda",
+        "memberIndex": 1,
+        "t": 0.92
+      },
+      "depth": 0.1,
+      "width": 0.12,
+      "height": 0.18,
+      "braceSpacingMm": 0,
+      "position": [
+        0.8232,
+        0.08999999999999986,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "truss-kiri",
+      "name": "Rigging kiri 3000 mm",
+      "type": "rigging",
+      "locked": false,
+      "riggingKind": "segment",
+      "width": 0.29,
+      "height": 3,
+      "braceSpacingMm": 0,
+      "position": [
+        3,
+        1.5,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "truss-kanan",
+      "name": "Rigging kanan 3000 mm",
+      "type": "rigging",
+      "locked": false,
+      "riggingKind": "segment",
+      "width": 0.29,
+      "height": 3,
+      "braceSpacingMm": 0,
+      "position": [
+        5.3,
+        1.5,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "truss-atas",
+      "name": "Rigging atas 2590 mm",
+      "type": "rigging",
+      "locked": false,
+      "riggingKind": "segment",
+      "width": 0.29,
+      "height": 2.59,
+      "braceSpacingMm": 0,
+      "position": [
+        4.15,
+        3.145,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        90
+      ]
+    },
+    {
+      "id": "jerigen",
+      "name": "Jerigen terikat ke hollow atas",
+      "type": "ballast",
+      "locked": false,
+      "tie": {
+        "targetId": "frame-roda",
+        "memberIndex": 0,
+        "t": 0.8
+      },
+      "ballastKind": "water-jerrycan",
+      "depth": 0.25,
+      "width": 0.35,
+      "height": 0.5,
+      "braceSpacingMm": 0,
+      "position": [
+        1.4,
+        0.25,
+        0.8
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "kain",
+      "name": "Kain penutup empat sudut",
+      "type": "cloth",
+      "locked": false,
+      "clothColor": "#20242a",
+      "clothSag": 0.06,
+      "clothCorners": [
+        [
+          -0.98,
+          0.9800000000000002,
+          -0.07700000000000001
+        ],
+        [
+          0.98,
+          0.9800000000000002,
+          -0.07700000000000001
+        ],
+        [
+          0.98,
+          -0.98,
+          -0.07700000000000001
+        ],
+        [
+          -0.98,
+          -0.98,
+          -0.07700000000000001
+        ]
+      ],
+      "clothPins": [
+        {
+          "targetId": "frame-roda",
+          "memberIndex": 0,
+          "t": 0,
+          "side": 1
+        },
+        {
+          "targetId": "frame-roda",
+          "memberIndex": 0,
+          "t": 1,
+          "side": 1
+        },
+        {
+          "targetId": "frame-roda",
+          "memberIndex": 1,
+          "t": 1,
+          "side": 1
+        },
+        {
+          "targetId": "frame-roda",
+          "memberIndex": 1,
+          "t": 0,
+          "side": 1
+        }
+      ],
+      "width": 2,
+      "height": 2,
+      "braceSpacingMm": 0,
+      "position": [
+        0,
+        1.18,
+        0.1
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "frameTemplate": {
+    "width": 2,
+    "height": 2,
+    "braceSpacingMm": 1000
+  },
+  "ledTemplate": {
+    "width": 1,
+    "height": 0.5
+  },
+  "ballastTemplate": {
+    "kind": "water-jerrycan",
+    "width": 0.35,
+    "height": 0.5,
+    "depth": 0.25
+  },
+  "wheelTemplate": {
+    "width": 0.12,
+    "height": 0.18,
+    "depth": 0.1
+  },
+  "riggingTemplate": {
+    "length": 2
+  },
+  "clothTemplate": {
+    "width": 2,
+    "height": 2,
+    "color": "#20242a",
+    "sag": 0.03
+  },
+  "palette": {
+    "type": "ballast",
+    "shape": "rectangle",
+    "accessory": "cloth"
+  },
+  "summary": {
+    "total": 1,
+    "bySize": [
+      {
+        "width": 2,
+        "height": 2,
+        "quantity": 1
+      }
+    ]
+  },
+  "objectsSummary": {
+    "total": 8,
+    "bySize": [
+      {
+        "type": "frame",
+        "width": 2,
+        "height": 2,
+        "quantity": 1
+      },
+      {
+        "type": "wheel",
+        "width": 0.12,
+        "height": 0.18,
+        "depth": 0.1,
+        "quantity": 2
+      },
+      {
+        "type": "rigging",
+        "width": 0.29,
+        "height": 3,
+        "riggingKind": "segment",
+        "quantity": 2
+      },
+      {
+        "type": "rigging",
+        "width": 0.29,
+        "height": 2.59,
+        "riggingKind": "segment",
+        "quantity": 1
+      },
+      {
+        "type": "ballast",
+        "width": 0.35,
+        "height": 0.5,
+        "depth": 0.25,
+        "ballastKind": "water-jerrycan",
+        "quantity": 1
+      },
+      {
+        "type": "cloth",
+        "width": 2,
+        "height": 2,
+        "clothColor": "#20242a",
+        "quantity": 1
+      }
+    ]
+  },
+  "settings": {
+    "snap": false,
+    "positionStep": 0.1,
+    "rotationStep": 15,
+    "grid": true,
+    "dimensions": true,
+    "space": "world"
+  },
+  "camera": null
+}
