@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {HOLLOW, LED_DEPTH, LED_BEZEL, MAX_FRAMES, DEFAULT_SETTINGS, dimension, braceSpacing, braceOffsetsMm, frameMembers, ledMembers, objectMembers, objectSummary, frameSummary, normalizeDegrees, snapValue, validateProject, makeProject} from '../src/project.js';
+import {HOLLOW, LED_DEPTH, LED_BEZEL, BALLAST_PRESETS, MAX_FRAMES, DEFAULT_SETTINGS, dimension, braceSpacing, braceOffsetsMm, frameMembers, ledMembers, objectMembers, objectSummary, frameSummary, validateBallastTemplate, validateTie, tubeAnchor, normalizeDegrees, snapValue, validateProject, makeProject} from '../src/project.js';
+import * as THREE from 'three';
+import {memberGeometry, fitMeshesToDimensions, tieVisualPoints} from '../src/geometry.js';
 
 const frame = () => ({id:'frame-01',name:'Frame 01',width:1,height:2,braceSpacingMm:0,position:[0,1,0],rotation:[0,90,0]});
 const project = () => makeProject([frame()],DEFAULT_SETTINGS,null);
@@ -163,4 +165,112 @@ test('invalid object types, screen braces and LED templates are rejected before 
   for(const value of [null,[],{width:0,height:.5},{width:1,height:'500'},{width:Infinity,height:.5}]){
     const p=project();p.ledTemplate=value;assert.throws(()=>validateProject(p));
   }
+});
+
+const ballast = (kind='water-jerrycan',extra={}) => ({...frame(),id:kind,type:'ballast',ballastKind:kind,...BALLAST_PRESETS[kind],position:[1,BALLAST_PRESETS[kind].height/2,-.5],rotation:[0,45,0],...extra});
+
+test('ballast kinds, custom depth, transforms, palette and creation template survive JSON round trips',()=>{
+  const objects=[frame(),ballast(),ballast('concrete-block',{depth:.45,rotation:[90,20,45]})];
+  const template={kind:'concrete-block',width:.8,height:.4,depth:.35};
+  const source=makeProject(objects,DEFAULT_SETTINGS,null,undefined,undefined,{type:'ballast',shape:'rectangle'},template);
+  const parsed=validateProject(JSON.parse(JSON.stringify(source)));
+  assert.deepEqual(parsed.frames,source.frames);assert.deepEqual(parsed.ballastTemplate,template);
+  assert.equal(parsed.palette.type,'ballast');assert.equal(parsed.frames[2].depth,.45);
+  assert.equal(source.summary.total,1);assert.equal(source.objectsSummary.total,3);
+});
+
+test('legacy files receive a default ballast template without changing existing objects',()=>{
+  const p=project();delete p.ballastTemplate;
+  assert.deepEqual(validateProject(p).ballastTemplate,{kind:'water-jerrycan',...BALLAST_PRESETS['water-jerrycan']});
+  assert.deepEqual(validateProject(p).frames,p.frames);
+});
+
+test('unknown ballast kinds, missing depth, nonfinite dimensions and braces are rejected',()=>{
+  for(const change of [{ballastKind:'stone'},{ballastKind:'__proto__'},{ballastKind:'unknown',kind:'water-jerrycan'},{depth:undefined},{depth:0},{depth:50.1},{depth:Infinity},{depth:'300'},{height:NaN},{braceSpacingMm:100}]){
+    assert.throws(()=>makeProject([ballast('water-jerrycan',change)],DEFAULT_SETTINGS,null));
+  }
+  for(const value of [null,[],{kind:'stone',width:1,height:1,depth:1},{kind:'water-jerrycan',width:.35,height:.5}, {kind:'concrete-block',width:.6,height:.3,depth:-1}])assert.throws(()=>validateBallastTemplate(value));
+  const p=project();p.ballastTemplate={kind:'unknown'};assert.throws(()=>validateProject(p));
+});
+
+test('ballast summaries distinguish type and depth, and count duplicate, resized and deleted objects',()=>{
+  const objects=[ballast(),ballast('water-jerrycan',{id:'copy',rotation:[0,90,0]}),ballast('water-jerrycan',{id:'deep',depth:.4}),ballast('concrete-block',{width:.35,height:.5,depth:.25})];
+  const summary=objectSummary(objects);assert.equal(summary.total,4);assert.equal(summary.bySize.length,3);
+  assert.equal(summary.bySize.find(f=>f.ballastKind==='water-jerrycan'&&f.depth===.25).quantity,2);
+  assert.equal(frameSummary(objects).total,0);
+  objects[1].depth=.4;assert.equal(objectSummary(objects).bySize.find(f=>f.depth===.4).quantity,2);
+  objects.pop();assert.equal(objectSummary(objects).total,3);
+});
+
+test('rendered ballast bounds match outside dimensions and rest exactly on the floor, including rope',()=>{
+  for(const kind of Object.keys(BALLAST_PRESETS))for(const dimensions of [BALLAST_PRESETS[kind],{width:.1,height:.1,depth:.1},{width:1.2,height:.7,depth:.8},{width:50,height:.1,depth:.1}]){
+    const data=ballast(kind,dimensions),members=objectMembers(data),group=new THREE.Group();
+    for(const member of members){
+      const mesh=new THREE.Mesh(memberGeometry(member));mesh.position.fromArray(member.position??[0,0,0]);group.add(mesh);
+      assert.ok([...mesh.geometry.attributes.position.array].every(Number.isFinite));
+    }
+    fitMeshesToDimensions(group.children,[data.width,data.height,data.depth]);
+    group.position.y=data.height/2;group.updateMatrixWorld(true);
+    const box=new THREE.Box3().setFromObject(group),size=box.getSize(new THREE.Vector3());
+    for(const [i,value] of [data.width,data.height,data.depth].entries())assert.ok(Math.abs(size.getComponent(i)-value)<1e-5,`${kind}: dimension ${i}`);
+    assert.ok(Math.abs(box.min.y)<1e-6,`${kind}: floor`);
+    if(kind==='water-jerrycan'){
+      assert.ok(members.some(m=>m.surface==='cap'));assert.ok(members.filter(m=>m.geometry==='rope'&&m.closed).length>=3);
+    }
+    group.rotation.set(.2,.5,.8);group.updateMatrixWorld(true);
+    group.position.y-=new THREE.Box3().setFromObject(group).min.y;group.updateMatrixWorld(true);
+    assert.ok(Math.abs(new THREE.Box3().setFromObject(group).min.y)<1e-6);
+    group.children.forEach(m=>{m.geometry.dispose();m.material.dispose();});
+  }
+});
+
+test('ties and object locks survive JSON while old objects default to unlocked',()=>{
+  const target={...frame(),locked:true},source=ballast('water-jerrycan',{tie:{targetId:target.id,memberIndex:0,t:.75}});
+  const p=makeProject([target,source],DEFAULT_SETTINGS,null);
+  assert.deepEqual(validateProject(JSON.parse(JSON.stringify(p))).frames,p.frames);
+  assert.equal(p.frames[0].locked,true);assert.equal(p.frames[1].locked,false);
+  delete p.frames[0].locked;assert.equal(validateProject(p).frames[0].locked,false);
+  for(const locked of [0,1,'yes',null])assert.throws(()=>makeProject([{...frame(),locked}],DEFAULT_SETTINGS,null));
+});
+
+test('invalid, dangling, wrong-type and missing-member ties are rejected atomically',()=>{
+  const target=frame(),tie={targetId:target.id,memberIndex:0,t:.5};
+  for(const change of [{targetId:'missing'},{targetId:''},{targetId:42},{memberIndex:4},{memberIndex:-1},{memberIndex:1.5},{t:-.1},{t:1.1},{t:'50'},{t:NaN}])assert.throws(()=>makeProject([target,ballast('water-jerrycan',{tie:{...tie,...change}})],DEFAULT_SETTINGS,null));
+  for(const type of ['led','ballast']){
+    const wrongTarget=type==='led'?{...target,type}:ballast('concrete-block',{id:target.id});
+    assert.throws(()=>makeProject([wrongTarget,ballast('water-jerrycan',{tie})],DEFAULT_SETTINGS,null));
+  }
+  assert.throws(()=>makeProject([target,ballast('concrete-block',{tie})],DEFAULT_SETTINGS,null));
+  assert.throws(()=>validateTie([]));
+});
+
+test('tie anchors stay on selected perimeter, brace and straight hollow members',()=>{
+  const target={...frame(),width:2,height:2,braceSpacingMm:1000};
+  assert.deepEqual(tubeAnchor(target,{targetId:target.id,memberIndex:0,t:.5}),{axis:0,position:[0,.98,0]});
+  assert.deepEqual(tubeAnchor(target,{targetId:target.id,memberIndex:2,t:.5}),{axis:1,position:[.98,0,0]});
+  assert.deepEqual(tubeAnchor(target,{targetId:target.id,memberIndex:4,t:.5}),{axis:0,position:[0,0,0]});
+  for(const t of [0,.25,.5,.75,1]){
+    const anchor=tubeAnchor(target,{targetId:target.id,memberIndex:0,t});assert.ok(Math.abs(anchor.position[0])<=.98);
+  }
+  const straight={...target,type:'hollow',width:HOLLOW,height:3,braceSpacingMm:0};
+  assert.deepEqual(tubeAnchor(straight,{targetId:target.id,memberIndex:0,t:.5}),{axis:1,position:[0,0,0]});
+  assert.equal(tubeAnchor({...target,width:.1,height:.1,braceSpacingMm:0},{targetId:target.id,memberIndex:2,t:.5}).axis,1);
+});
+
+test('coincident tether endpoints produce finite geometry without a zero-length path failure',()=>{
+  const geometry=memberGeometry({geometry:'rope',points:[[1,2,3],[1,2,3]],radius:.005});
+  assert.ok([...geometry.attributes.position.array].every(Number.isFinite));geometry.dispose();
+});
+
+test('tether starts at the upper rear of the container and follows both objects through transforms',()=>{
+  const target={...frame(),width:2,rotation:[0,0,0]},source=ballast('water-jerrycan',{rotation:[0,0,0],tie:{targetId:target.id,memberIndex:0,t:.5}});
+  const before=tieVisualPoints(source,target);
+  assert.deepEqual(before.start,[source.position[0]+source.width*.08,source.position[1]+source.height*.4,source.position[2]-source.depth*.1]);
+  before.end.forEach((n,i)=>assert.ok(Math.abs(n-[0,1.98,-.026][i])<1e-12));
+  const delta=[2,3,-4],moved={...target,position:target.position.map((n,i)=>n+delta[i])},after=tieVisualPoints(source,moved);
+  assert.deepEqual(after.start,before.start);after.end.forEach((n,i)=>assert.ok(Math.abs(n-before.end[i]-delta[i])<1e-12));
+  const rotated=tieVisualPoints(source,{...target,rotation:[0,90,0]});
+  assert.ok(Math.abs(rotated.end[0]+.026)<1e-12);assert.ok(Math.abs(rotated.end[2])<1e-12);
+  const wider=tieVisualPoints({...source,tie:{...source.tie,t:1}},{...target,width:4});assert.ok(Math.abs(wider.end[0]-1.98)<1e-12);
+  for(const points of [before,after,rotated,wider])assert.ok([...points.start,...points.end,...points.loop.flat()].every(Number.isFinite));
 });

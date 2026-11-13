@@ -1,8 +1,8 @@
 # Contruction Builder (LED Rental)
 
-Versi **1.3.0** — tab bentuk frame, hollow lurus, dan kabinet LED Screen dengan ukuran custom serta bezel tipis.
+Versi **1.5.0** — tali jerigen yang dapat diikat ke hollow pilihan serta kunci posisi dan rotasi objek.
 
-Editor 3D lokal untuk menyusun rangka dan kabinet LED rental secara manual. Dibuat dengan HTML, CSS, JavaScript dan Three.js r170 yang sudah disertakan dalam paket. **Tidak memerlukan internet, akun, instalasi, atau proses build untuk dipakai.**
+Editor 3D lokal untuk menyusun rangka, kabinet LED rental, dan objek pemberat secara manual. Dibuat dengan HTML, CSS, JavaScript dan Three.js r170 yang sudah disertakan dalam paket. **Tidak memerlukan internet, akun, instalasi, atau proses build untuk dipakai.**
 
 ## Menjalankan
 
@@ -34,9 +34,37 @@ Tidak perlu menjalankan server. Jika ingin menggunakan server lokal, dari folder
 - Ukuran kabinet yang sudah ditambahkan bisa diubah melalui **Properti LED Screen**, memakai preset atau kolom lebar/tinggi. Badan kabinet dimodelkan setebal 80 mm. Bezel tetap **2 mm pada tiap sisi** mengelilingi permukaan LED di depan dan belakang; dua kabinet berdampingan memiliki total batas 4 mm, tanpa mengubah ukuran luar lebar/tinggi kabinet.
 - Frame, hollow lurus, dan kabinet LED semuanya mendukung pilihan dari daftar atau viewport, drag/drop kartu, geser, putar, letakkan di lantai, duplikat, hapus, Undo/Redo, dan ekspor PNG.
 - Posisi awal objek baru tetap di titik asal dengan sisi bawah di lantai. Geser kabinet secara manual untuk menyusun videotron; tidak ada pembagian kabinet atau penyusunan otomatis.
-- Tab aktif, pilihan bentuk, ukuran kabinet pada form, dan seluruh jenis objek ikut disimpan dalam JSON v1.3. JSON dari versi sebelumnya tetap bisa dimuat; objek lama dibaca sebagai frame.
-- Batas proyek **300 objek** berlaku untuk gabungan frame, hollow lurus, dan LED Screen. Batas ukuran frame/kabinet serta panjang hollow tetap 100–50.000 mm.
+- Tab aktif, pilihan bentuk, ukuran kabinet pada form, dan seluruh jenis objek ikut disimpan dalam JSON v1.5. JSON dari versi sebelumnya tetap bisa dimuat; objek lama dibaca sebagai frame.
+- Batas proyek **300 objek** berlaku untuk gabungan frame, hollow lurus, LED Screen, dan pemberat. Batas ukuran frame/kabinet serta panjang hollow tetap 100–50.000 mm.
 - Untuk mencoba susunan, klik **Muat** dan pilih `contoh-frame-dan-led-screen.json`: berisi frame kotak dengan delapan kabinet 1000 × 500 mm yang saling berdampingan, frame persegi panjang, hollow lurus, dan satu kabinet custom 1280 × 720 mm.
+
+## Objek pemberat
+
+- Buka tab **Pemberat**, pilih **Jerigen air bertali** atau **Balok semen**, lalu klik **Tambah Pemberat** atau seret kartunya ke lantai dalam tampilan Iso/Top.
+- Jerigen memiliki badan biru, pegangan terbuka, tutup, serta tali yang melingkari badan dan terikat di pegangan. Balok semen memiliki bentuk padat dengan tekstur beton.
+- Ukuran awal jerigen **350 × 500 × 250 mm** dan balok **600 × 300 × 300 mm**, dalam urutan **lebar × tinggi × kedalaman**. Nilai ini adalah ukuran contoh yang dapat disesuaikan. Mengganti jenis mengisi ulang ukuran awal.
+- Ubah ketiga ukuran pada form atau panel **Properti pemberat**; batas tiap dimensi 100–50.000 mm. Ukuran luar model jerigen mencakup pegangan dan tali. Posisi awal sisi terbawah berada di lantai, Y=0.
+- Semua pemberat mendukung pilih melalui viewport/daftar, seret langsung, gizmo geser/putar, input posisi/rotasi, letakkan di lantai, duplikat, hapus, Undo/Redo, dan ekspor PNG.
+- **Material terpakai** membedakan jerigen dan balok, termasuk kedalamannya. Jumlah pemberat ikut batas gabungan 300 objek. Rotasi tidak mengubah kelompok material.
+- JSON v1.4 menyimpan `type: "ballast"`, `ballastKind`, `depth` (meter), ukuran, posisi, dan rotasi. Pilihan jenis serta ukuran form disimpan dalam `ballastTemplate`. JSON lama tetap dapat dimuat; versi aplikasi lama belum mendukung objek pemberat.
+- Muat **contoh-frame-dan-pemberat.json** untuk mencoba frame terkunci dengan dua jerigen yang diikat ke hollow atas dan dua balok semen.
+
+## Mengikat jerigen ke hollow
+
+1. Pilih jerigen. Pada **Properti pemberat**, bagian **Tali pengikat jerigen** berada di bawah sakelar kunci.
+2. Klik **Pilih hollow di area 3D**, lalu klik batang hollow tujuan. Jerigen tetap terpilih; tali berasal dari bagian atas belakang jerigen dan melingkari hollow tujuan. **Esc** atau **Batal** membatalkan pemilihan.
+3. Alternatif: pilih **Frame / hollow tujuan** dan **Batang tempat ikat** dari daftar. Frame menyediakan hollow atas, bawah, kiri, kanan, serta batang tengah yang tersedia. Hollow lurus juga dapat menjadi tujuan. Frame terkunci tetap dapat dipilih sebagai tujuan tali.
+4. Atur **Posisi sepanjang batang** dari 0–100%: kiri ke kanan untuk batang horizontal, bawah ke atas untuk batang vertikal, menurut sumbu lokal objek.
+5. Tali mengikuti posisi dan rotasi jerigen maupun hollow tujuan. Mengubah dimensi frame memperbarui titik ikat. **Lepaskan tali dari hollow** menghapus sambungan tanpa menghapus jerigen.
+
+Satu jerigen memiliki satu tali pengikat ke hollow. Tali ditampilkan sebagai garis tegang, dengan lilitan pada batang tujuan; tali tidak dihitung sebagai objek tambahan. Menghapus objek tujuan atau menghilangkan batang tujuan akan melepas tali. Undo mengembalikan sambungan. Duplikat jerigen mempertahankan tujuan yang sama, dengan titik ikat yang bisa diedit secara terpisah.
+
+## Mengunci frame
+
+- Pilih frame, lalu aktifkan **Kunci posisi & rotasi** pada panel properti. Fitur yang sama juga tersedia untuk hollow, LED, dan pemberat.
+- Objek terkunci ditandai ikon gembok pada daftar. Seret langsung, gizmo, input posisi/rotasi, tombol +90°, dan Letakkan di lantai dinonaktifkan sampai kunci dibuka.
+- Objek tetap bisa dipilih, diganti namanya, diubah ukurannya, diduplikat, dan dihapus. Hasil duplikasi selalu terbuka kuncinya agar dapat ditempatkan.
+- Status kunci dan sambungan tali ikut Undo/Redo serta simpan/muat JSON v1.5. JSON lama dibaca dengan kunci nonaktif dan tanpa tali pengikat tambahan.
 
 ## Kamera dan grid
 
@@ -57,7 +85,7 @@ Tidak perlu menjalankan server. Jika ingin menggunakan server lokal, dari folder
 
 ## Simpan, muat, dan screenshot
 
-- **Simpan JSON** membaca perubahan jarak hollow yang sedang diketik sebelum membuat file. Nilai pada form **Buat frame** (lebar, tinggi, jarak) ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.3 pada nama file dan `appVersion` di dalam JSON.
+- **Simpan JSON** membaca perubahan properti yang sedang diketik sebelum membuat file, termasuk kedalaman pemberat dan posisi ikat tali. Nilai pada form pembuatan objek ikut tersimpan dan dipulihkan, terpisah dari properti masing-masing objek. Berkas diberi penanda versi 1.5 pada nama file dan `appVersion` di dalam JSON.
 - **Simpan JSON** mengunduh proyek: seluruh frame, nama, dimensi, jarak hollow tengah, posisi, rotasi, preferensi snap/grid, dan keadaan kamera. Simpan sebelum menutup halaman; tidak ada penyimpanan otomatis.
 - **Muat** membaca file JSON lokal dari aplikasi ini. Format, nilai angka, batas objek, dan profil hollow divalidasi sebelum mengganti proyek. File rusak ditolak tanpa mengubah objek saat ini. Ukuran file maksimal 5 MB.
 - **Export PNG** mengunduh tampilan 3D saat ini, termasuk grid dan label dimensi terpilih jika diaktifkan. Gizmo dan panel editor tidak ikut diekspor. PNG mengikuti resolusi viewport dengan rasio piksel perangkat maksimal 2.
@@ -65,7 +93,7 @@ Tidak perlu menjalankan server. Jika ingin menggunakan server lokal, dari folder
 
 ## Rekap material terpakai
 
-Panel **Material terpakai** terletak di kanan, di bawah area properti, dan tetap terlihat saat properti digulir. Rekap menghitung frame, hollow lurus, dan LED Screen secara terpisah berdasarkan jenis dan ukuran dalam mm, beserta totalnya. Hollow lurus dikelompokkan berdasarkan panjang.
+Panel **Material terpakai** terletak di kanan, di bawah area properti, dan tetap terlihat saat properti digulir. Rekap menghitung frame, hollow lurus, LED Screen, jerigen air bertali, dan balok semen secara terpisah berdasarkan jenis dan ukuran dalam mm, beserta totalnya. Hollow lurus dikelompokkan berdasarkan panjang. Pemberat dikelompokkan berdasarkan ketiga dimensi lokal; perbedaan kedalaman tidak digabung.
 
 Jumlah diperbarui setelah Add Frame, duplikat, hapus, perubahan ukuran, Undo/Redo, proyek baru, dan muat JSON. Rotasi tidak mengubah kelompok ukuran: 1 × 2 m dan 2 × 1 m digabung. Perbedaan jarak hollow tidak memisahkan kelompok ukuran. Ringkasan frame tetap disimpan sebagai `summary`, sedangkan gabungan material disimpan sebagai `objectsSummary`; saat memuat, angka di panel dihitung kembali dari objek aktual.
 
@@ -97,7 +125,10 @@ Panel kiri dan kanan berubah menjadi panel buka/tutup melalui **Frame & objek** 
 - `index.html`, `styles.css`, `app.bundle.js`: versi file terpisah, juga bisa dibuka langsung.
 - `src/app.js`: antarmuka, geometri, kamera dan interaksi Three.js.
 - `src/project.js`: format proyek dan validasi.
+- `src/geometry.js`: geometri pemberat dan tekstur beton lokal.
 - `tests/project.test.js`: pemeriksaan format proyek, batas dimensi, angka, snap, dan kamera.
+- `tests/browser-smoke.mjs`: pemeriksaan browser opsional dengan Playwright; jalankan `node tests/browser-smoke.mjs` jika Playwright dan Chromium tersedia. `PLAYWRIGHT_MODULE` dan `CHROME_PATH` dapat menunjuk instalasi yang sudah ada. Hasil tersimpan di `.verification/`.
+- `tests/attachments-browser.mjs`: pemeriksaan browser untuk kunci objek, pemilihan hollow melalui klik, tali yang mengikuti transformasi, penghapusan tujuan, Undo/Redo, JSON, dan layar kecil. Jalankan dengan konfigurasi Playwright yang sama.
 - `THREE-LICENSE.txt`: lisensi MIT Three.js.
 
 Jika mengubah sumber, jalankan `npm install` sekali, lalu `npm run build` dari folder ini. Build memperbarui bundle dan HTML mandiri. Pemeriksaan format data dapat dijalankan dengan `npm test` (memerlukan Node.js).

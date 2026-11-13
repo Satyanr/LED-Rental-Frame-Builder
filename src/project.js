@@ -1,6 +1,6 @@
 // Project format is deliberately independent of Three.js and the DOM.
 export const HOLLOW = 0.04;
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.5.0';
 export const LED_DEPTH = 0.08;
 export const LED_BEZEL = 0.002;
 export const MAX_FRAMES = 300;
@@ -10,6 +10,40 @@ export const LIMIT_POSITION = 500;
 export const DEFAULT_SETTINGS = Object.freeze({snap:false, positionStep:0.1, rotationStep:15, grid:true, dimensions:true, space:'world'});
 export const POSITION_STEPS = [0.01, 0.05, 0.1, 0.25, 0.5, 1];
 export const ROTATION_STEPS = [5, 15, 45, 90];
+export const BALLAST_PRESETS = Object.freeze({
+  'water-jerrycan':Object.freeze({width:.35,height:.5,depth:.25}),
+  'concrete-block':Object.freeze({width:.6,height:.3,depth:.3}),
+});
+export const isBallast = data => data.type==='ballast';
+export const isJerrycan = data => isBallast(data)&&data.ballastKind==='water-jerrycan';
+export const isTubeTarget = data => !data.type||data.type==='frame'||data.type==='hollow';
+export function validateTie(tie) {
+  if(!tie||typeof tie!=='object'||Array.isArray(tie)||typeof tie.targetId!=='string'||!tie.targetId.length||tie.targetId.length>=100)throw new Error('Tujuan tali tidak valid.');
+  if(!Number.isInteger(tie.memberIndex)||tie.memberIndex<0||tie.memberIndex>=MAX_BRACES_PER_FRAME+4)throw new Error('Batang tujuan tali tidak valid.');
+  return {targetId:tie.targetId,memberIndex:tie.memberIndex,t:numeric(tie.t,0,1,'Titik ikat tali')};
+}
+export function tubeAnchor(target,tie) {
+  if(!isTubeTarget(target))throw new Error('Tali hanya dapat diikat ke frame atau hollow lurus.');
+  const member=objectMembers(target)[validateTie(tie).memberIndex];
+  if(!member)throw new Error('Batang tujuan tali sudah tidak tersedia.');
+  const axis=target.type==='hollow'||tie.memberIndex===2||tie.memberIndex===3?1:0,position=[...member.position];
+  position[axis]+=(tie.t-.5)*Math.max(0,member.size[axis]-HOLLOW);
+  return {axis,position};
+}
+export function validateConnections(frames) {
+  const byId=new Map(frames.map(f=>[f.id,f]));
+  for(const f of frames)if(f.tie){
+    const target=byId.get(f.tie.targetId);
+    if(!target||target.id===f.id)throw new Error('Tujuan tali tidak ditemukan dalam proyek.');
+    tubeAnchor(target,f.tie);
+  }
+  return frames;
+}
+export function objectLabel(data) {return isBallast(data)?data.ballastKind==='water-jerrycan'?'Jerigen air bertali':'Balok semen':data.type==='led'?'LED Screen':data.type==='hollow'?'Hollow lurus':'Frame';}
+export function validateBallastTemplate(value={kind:'water-jerrycan',...BALLAST_PRESETS['water-jerrycan']}) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||!Object.hasOwn(BALLAST_PRESETS,value.kind))throw new Error('Jenis pemberat tidak didukung.');
+  return {kind:value.kind,width:dimension(value.width,'Lebar pemberat'),height:dimension(value.height,'Tinggi pemberat'),depth:dimension(value.depth,'Kedalaman pemberat')};
+}
 export function uid() { return globalThis.crypto?.randomUUID?.() ?? `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`; }
 export function numeric(value, min, max, label) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw new Error(`${label} harus antara ${min} dan ${max}.`);
@@ -54,9 +88,33 @@ export function ledMembers(width,height) {
   ];
 }
 export function objectMembers(data) {
+  if(isBallast(data))return ballastMembers(data);
   if(data.type==='led')return ledMembers(data.width,data.height);
   if(data.type==='hollow'){dimension(data.height,'Panjang hollow');return [{size:[HOLLOW,data.height,HOLLOW],position:[0,0,0]}];}
   return frameMembers(data.width,data.height,data.braceSpacingMm??0);
+}
+export function ballastMembers(data) {
+  const {kind,width:w,height:h,depth:d}=validateBallastTemplate({...data,kind:data.ballastKind});
+  const box=(size,position,surface='body')=>({geometry:'rounded',size,position,surface});
+  if(kind==='concrete-block')return [box([w,h,d],[0,0,0])];
+  const r=Math.min(w,h,d)*.018;
+  const rope=(points,closed=false)=>({geometry:'rope',surface:'rope',radius:r,closed,points:points.map(([x,y,z])=>[x*w,y*h,z*d])});
+  return [
+    box([w*.9,h*.74,d*.88],[0,-h*.13,0]),
+    box([w*.76,h*.1,d*.78],[0,h*.27,0]),
+    // An open handle and a separate screw cap distinguish the water container.
+    box([w*.075,h*.12,d*.2],[-w*.09,h*.37,0]),
+    box([w*.075,h*.12,d*.2],[w*.25,h*.37,0]),
+    box([w*.415,h*.07,d*.2],[w*.08,h*.445,0]),
+    {geometry:'cylinder',surface:'cap',size:[w*.23,h*.09,Math.min(w*.23,d*.55)],position:[-w*.27,h*.365,0]},
+    // A belt and two continuous slings wrap around the full container.
+    rope([[-.48,-.04,-.46],[.48,-.04,-.46],[.48,-.04,.46],[-.48,-.04,.46]],true),
+    ...[-.24,.24].map(x=>rope([[x,.32,-.31],[x,.2,-.47],[x,-.45,-.47],[x,-.49,-.35],[x,-.49,.35],[x,-.45,.47],[x,.2,.47],[x,.32,.31]],true)),
+    rope([[.24,.31,.31],[.14,.36,.2],[.08,.4,.03],[.04,.48,0],[-.07,.49,0],[-.11,.44,.03],[-.04,.39,.04],[.08,.4,.03],[.16,.32,.34]]),
+    box([r*3,r*3,r*3],[w*.08,h*.4,d*.03],'rope'),
+    // Raised ribs are moulded into the front and rear faces.
+    ...[-1,1].flatMap(side=>[-.23,0,.23].map(x=>box([w*.055,h*.44,d*.04],[x*w,-h*.13,side*d*.44],'rib'))),
+  ];
 }
 export function normalizeDegrees(value) { return ((value + 180) % 360 + 360) % 360 - 180; }
 export function snapValue(value, step) { return Math.round(value / step) * step; }
@@ -68,7 +126,10 @@ export function validateFrame(frame, index=0) {
   };
   const name = typeof frame.name === 'string' ? frame.name.trim().slice(0,60) : '';
   const type=frame.type??'frame';
-  if(!['frame','hollow','led'].includes(type))throw new Error('Jenis objek tidak didukung.');
+  if(!['frame','hollow','led','ballast'].includes(type))throw new Error('Jenis objek tidak didukung.');
+  const ballast=type==='ballast'?validateBallastTemplate({...frame,kind:frame.ballastKind}):null;
+  if(frame.locked!==undefined&&typeof frame.locked!=='boolean')throw new Error('Status kunci objek harus benar atau salah.');
+  if(frame.tie!=null&&!isJerrycan(frame))throw new Error('Tali pengikat hanya tersedia untuk jerigen air.');
   const shape=frame.shape??(frame.width===frame.height?'square':'rectangle');
   if(type==='frame'&&!['square','rectangle'].includes(shape))throw new Error('Bentuk frame tidak didukung.');
   if(type==='frame'&&shape==='square'&&frame.width!==frame.height)throw new Error('Frame kotak harus memiliki lebar dan tinggi sama.');
@@ -78,8 +139,10 @@ export function validateFrame(frame, index=0) {
   braceOffsetsMm(frame.height,spacingMm);
   return {
     id: typeof frame.id === 'string' && frame.id.length > 0 && frame.id.length < 100 ? frame.id : uid(),
-    name: name || `${type==='led'?'LED Screen':type==='hollow'?'Hollow':'Frame'} ${String(index+1).padStart(2,'0')}`,
-    type,...(type==='frame'?{shape}:{}),
+    name: name || `${objectLabel(frame)} ${String(index+1).padStart(2,'0')}`,
+    type,locked:frame.locked??false,...(type==='frame'?{shape}:{}),
+    ...(frame.tie!=null?{tie:validateTie(frame.tie)}:{}),
+    ...(ballast?{ballastKind:ballast.kind,depth:ballast.depth}:{}),
     width:type==='hollow'?HOLLOW:dimension(frame.width, 'Lebar'), height:dimension(frame.height, 'Tinggi'),
     braceSpacingMm:spacingMm,
     position:triplet(frame.position, LIMIT_POSITION, 'Posisi'),
@@ -106,9 +169,9 @@ export function frameSummary(frames) {
 export function objectSummary(objects) {
   const groups=new Map();
   for(const f of objects){
-    const type=f.type??'frame',sides=type==='hollow'?[HOLLOW,f.height]:[f.width,f.height].sort((a,b)=>b-a);
-    const key=[type,...sides.map(n=>Number(n.toFixed(6)))].join(':');
-    if(!groups.has(key))groups.set(key,{type,width:sides[0],height:sides[1],quantity:0});
+    const type=f.type??'frame',sides=isBallast(f)?[f.width,f.height,f.depth]:type==='hollow'?[HOLLOW,f.height]:[f.width,f.height].sort((a,b)=>b-a);
+    const key=[type,...(isBallast(f)?[f.ballastKind]:[]),...sides.map(n=>Number(n.toFixed(6)))].join(':');
+    if(!groups.has(key))groups.set(key,{type,width:sides[0],height:sides[1],...(isBallast(f)?{depth:f.depth,ballastKind:f.ballastKind}:{}),quantity:0});
     groups.get(key).quantity++;
   }
   return {total:objects.length,bySize:[...groups.values()]};
@@ -121,7 +184,7 @@ export function validateProject(data) {
   if (!data || typeof data !== 'object' || data.app !== 'led-rental-frame-builder' || data.version !== 1 || data.units !== 'meters') throw new Error('Format proyek tidak didukung. Pilih JSON dari Contruction Builder (LED Rental) versi 1.');
   if (data.hollow?.width !== HOLLOW || data.hollow?.height !== HOLLOW) throw new Error('Proyek harus memakai profil hollow tetap 40 × 40 mm.');
   if (!Array.isArray(data.frames) || data.frames.length > MAX_FRAMES) throw new Error(`Proyek maksimal ${MAX_FRAMES} objek.`);
-  const frames = data.frames.map(validateFrame);
+  const frames = validateConnections(data.frames.map(validateFrame));
   if(frames.reduce((sum,f)=>sum+braceOffsetsMm(f.height,f.braceSpacingMm).length,0)>MAX_PROJECT_BRACES)throw new Error(`Maksimal ${MAX_PROJECT_BRACES} hollow tengah dalam satu proyek.`);
   if (new Set(frames.map(f => f.id)).size !== frames.length) throw new Error('ID frame di proyek tidak boleh duplikat.');
   const s = data.settings || {};
@@ -141,11 +204,12 @@ export function validateProject(data) {
   }
   const frameTemplate=validateFrameTemplate(data.frameTemplate??frames.find(f=>f.type==='frame')??{width:1,height:2,braceSpacingMm:0});
   const ledTemplate=validateLedTemplate(data.ledTemplate);
-  const palette={type:['frame','led'].includes(data.palette?.type)?data.palette.type:'frame',shape:['square','rectangle','hollow'].includes(data.palette?.shape)?data.palette.shape:'rectangle'};
+  const ballastTemplate=validateBallastTemplate(data.ballastTemplate);
+  const palette={type:['frame','led','ballast'].includes(data.palette?.type)?data.palette.type:'frame',shape:['square','rectangle','hollow'].includes(data.palette?.shape)?data.palette.shape:'rectangle'};
   if(palette.shape==='square'&&frameTemplate.width!==frameTemplate.height)palette.shape='rectangle';
-  return {frames, settings, camera, frameTemplate, ledTemplate, palette};
+  return {frames, settings, camera, frameTemplate, ledTemplate, ballastTemplate, palette};
 }
-export function makeProject(frames, settings, camera, template=frames.find(f=>!f.type||f.type==='frame')??{width:1,height:2,braceSpacingMm:0}, ledTemplate, palette={type:'frame',shape:'rectangle'}) {
-  const savedFrames=frames.map(validateFrame);
-  return {app:'led-rental-frame-builder', appVersion:APP_VERSION, version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames:savedFrames, frameTemplate:validateFrameTemplate(template), ledTemplate:validateLedTemplate(ledTemplate),palette:{...palette}, summary:frameSummary(savedFrames), objectsSummary:objectSummary(savedFrames), settings:{...settings}, camera};
+export function makeProject(frames, settings, camera, template=frames.find(f=>!f.type||f.type==='frame')??{width:1,height:2,braceSpacingMm:0}, ledTemplate, palette={type:'frame',shape:'rectangle'}, ballastTemplate) {
+  const savedFrames=validateConnections(frames.map(validateFrame));
+  return {app:'led-rental-frame-builder', appVersion:APP_VERSION, version:1, units:'meters', hollow:{width:HOLLOW,height:HOLLOW}, frames:savedFrames, frameTemplate:validateFrameTemplate(template), ledTemplate:validateLedTemplate(ledTemplate),ballastTemplate:validateBallastTemplate(ballastTemplate),palette:{...palette}, summary:frameSummary(savedFrames), objectsSummary:objectSummary(savedFrames), settings:{...settings}, camera};
 }

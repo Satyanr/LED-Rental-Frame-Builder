@@ -1,0 +1,191 @@
+{
+  "app": "led-rental-frame-builder",
+  "appVersion": "1.5.0",
+  "version": 1,
+  "units": "meters",
+  "hollow": {
+    "width": 0.04,
+    "height": 0.04
+  },
+  "frames": [
+    {
+      "id": "frame-utama",
+      "name": "Frame 2000 x 2000",
+      "type": "frame",
+      "locked": true,
+      "shape": "square",
+      "width": 2,
+      "height": 2,
+      "braceSpacingMm": 1000,
+      "position": [
+        0,
+        1,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "pemberat-0-0",
+      "name": "Jerigen air bertali 1",
+      "type": "ballast",
+      "locked": false,
+      "tie": {
+        "targetId": "frame-utama",
+        "memberIndex": 0,
+        "t": 0.18
+      },
+      "ballastKind": "water-jerrycan",
+      "depth": 0.25,
+      "width": 0.35,
+      "height": 0.5,
+      "braceSpacingMm": 0,
+      "position": [
+        -0.75,
+        0.25,
+        1.2
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "pemberat-0-1",
+      "name": "Jerigen air bertali 2",
+      "type": "ballast",
+      "locked": false,
+      "tie": {
+        "targetId": "frame-utama",
+        "memberIndex": 0,
+        "t": 0.82
+      },
+      "ballastKind": "water-jerrycan",
+      "depth": 0.25,
+      "width": 0.35,
+      "height": 0.5,
+      "braceSpacingMm": 0,
+      "position": [
+        0.75,
+        0.25,
+        1.2
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "pemberat-1-0",
+      "name": "Balok semen 1",
+      "type": "ballast",
+      "locked": false,
+      "ballastKind": "concrete-block",
+      "depth": 0.3,
+      "width": 0.6,
+      "height": 0.3,
+      "braceSpacingMm": 0,
+      "position": [
+        -0.75,
+        0.15,
+        -1.4
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "pemberat-1-1",
+      "name": "Balok semen 2",
+      "type": "ballast",
+      "locked": false,
+      "ballastKind": "concrete-block",
+      "depth": 0.3,
+      "width": 0.6,
+      "height": 0.3,
+      "braceSpacingMm": 0,
+      "position": [
+        0.75,
+        0.15,
+        -1.4
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "frameTemplate": {
+    "width": 2,
+    "height": 2,
+    "braceSpacingMm": 1000
+  },
+  "ledTemplate": {
+    "width": 1,
+    "height": 0.5
+  },
+  "ballastTemplate": {
+    "kind": "water-jerrycan",
+    "width": 0.35,
+    "height": 0.5,
+    "depth": 0.25
+  },
+  "palette": {
+    "type": "ballast",
+    "shape": "square"
+  },
+  "summary": {
+    "total": 1,
+    "bySize": [
+      {
+        "width": 2,
+        "height": 2,
+        "quantity": 1
+      }
+    ]
+  },
+  "objectsSummary": {
+    "total": 5,
+    "bySize": [
+      {
+        "type": "frame",
+        "width": 2,
+        "height": 2,
+        "quantity": 1
+      },
+      {
+        "type": "ballast",
+        "width": 0.35,
+        "height": 0.5,
+        "depth": 0.25,
+        "ballastKind": "water-jerrycan",
+        "quantity": 2
+      },
+      {
+        "type": "ballast",
+        "width": 0.6,
+        "height": 0.3,
+        "depth": 0.3,
+        "ballastKind": "concrete-block",
+        "quantity": 2
+      }
+    ]
+  },
+  "settings": {
+    "snap": false,
+    "positionStep": 0.1,
+    "rotationStep": 15,
+    "grid": true,
+    "dimensions": true,
+    "space": "world"
+  },
+  "camera": null
+}

@@ -1,3 +1,24 @@
+# Pembaruan 1.5 — Tali pengikat dan kunci frame
+
+- 33 pemeriksaan otomatis lolos. Data tali memvalidasi ID tujuan, jenis frame/hollow, indeks batang, dan posisi 0–100%; sambungan rusak ditolak sebelum mengganti proyek. Status kunci dan tali tetap tersimpan setelah serialisasi JSON; proyek lama mendapat kunci nonaktif.
+- Geometri tali diperiksa: berasal dari atas belakang jerigen, melingkari hollow tujuan, serta mengikuti translasi, rotasi, dan perubahan dimensi objek tujuan.
+- Chrome headless menguji kunci dengan seret langsung pada batang dan perubahan posisi/rotasi melalui event. Posisi dan rotasi terkunci tetap utuh; membuka kunci memungkinkan seret kembali. Undo/Redo memulihkan status kunci.
+- Pemilihan hollow melalui klik viewport berhasil pada frame terkunci dan mempertahankan pilihan jerigen. Pilihan batang tengah, posisi sepanjang batang, pembatalan Esc, lepas tali, serta pindah tujuan ke hollow lurus berhasil.
+- Menghapus frame tujuan atau menghilangkan batang tengah tujuan melepas tali tanpa error. Undo mengembalikan objek dan sambungannya.
+- JSON hasil unduhan menyimpan posisi tali 90% saat input belum kehilangan fokus. Muat ke HTML mandiri offline memulihkan tali dan kunci. Duplikat jerigen dapat memiliki titik ikat berbeda tanpa mengubah jerigen asal.
+- JSON dengan tujuan tali tidak ditemukan ditolak tanpa mengganti objek saat ini. Export PNG menyertakan tali. Screenshot desktop dan panel properti pada 390 × 844 diperiksa; tidak ada overflow horizontal.
+- Pemeriksaan browser v1.4 tetap dijalankan untuk penambahan pemberat, LED, hollow, geometri jerigen, drag/drop, simpan/muat, dan HTML mandiri. Contoh proyek pemberat diperbarui dengan frame terkunci dan dua tali ke hollow atas.
+
+# Pembaruan 1.4 — Objek pemberat
+
+- 28 pemeriksaan otomatis lolos, termasuk jenis pemberat, kedalaman custom, validasi data rusak, rekap per jenis/kedalaman, kompatibilitas JSON lama, serta simpan/muat form dan objek campuran.
+- Geometri aktual Three.js diperiksa: ukuran luar jerigen (termasuk tali/pegangan) dan balok sesuai lebar/tinggi/kedalaman; bagian terbawah tepat Y=0, juga setelah diputar dan diletakkan kembali di lantai.
+- Chrome headless membuka `index.html` dan HTML mandiri langsung melalui `file://` dengan jaringan dinonaktifkan. Kedua pemberat berhasil ditambahkan tanpa error JavaScript atau permintaan HTTP/HTTPS.
+- Interaksi browser lolos: pilih/seret jerigen langsung di viewport, ubah kedalaman, tolak kedalaman 0, duplikat, hapus, Undo/Redo, putar, letakkan di lantai, dan drag/drop kartu pemberat. Penambahan LED Screen serta hollow lurus tetap berjalan.
+- File JSON hasil unduhan aktual diperiksa: kedalaman 333 mm yang masih aktif diketik tersimpan sebagai `depth: 0.333`; empat pemberat, rotasi, jenis tab, dan ukuran form balok 800 × 350 × 400 mm tersimpan. Muat kembali ke halaman baru memulihkan nilainya.
+- Export PNG menghasilkan file PNG valid. Screenshot jerigen, gabungan objek, dan panel Pemberat pada 390 × 844 diperiksa secara visual; tidak ada overflow horizontal.
+- Build akhir memperbarui bundle dan HTML mandiri. `contoh-frame-dan-pemberat.json` berisi satu frame, dua jerigen bertali, dan dua balok semen. Paket ZIP v1.4 menyertakan versi terbaru beserta sumbernya.
+
 # Pembaruan 1.3 — Bentuk frame dan LED Screen
 
 - 23 pemeriksaan otomatis lolos. Tambahan pemeriksaan mencakup frame kotak/persegi panjang, geometri hollow lurus 40 × 40 mm, preset dan ukuran LED custom, bezel 2 mm, batas dua kabinet berdampingan, rekap material terpisah, data tidak valid, dan simpan/muat proyek campuran.
